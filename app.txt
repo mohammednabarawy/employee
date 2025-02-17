@@ -1,0 +1,293 @@
+
+"Develop a Full-Functional Employee Management System with Python, PyQt5, and SQLite3"
+
+💡 Project Overview:
+Develop a desktop application using Python, PyQt5, and SQLite3 that allows a company to manage employees and salary payments. The system should include an intuitive Graphical User Interface (GUI) with data storage in an SQLite3 database.
+
+The application should have the following core modules:
+
+Employee Management (CRUD operations for employees)
+Salary Structure & Payment Management
+Payroll Management & Salary Payment History
+Reports & Data Export (Excel/PDF)
+User Authentication & Role Management
+📁 Application Structure:
+bash
+نسخ
+تحرير
+EmployeeManagement/
+│── main.py               # Main entry point
+│── database.py           # Handles database connection and queries
+│── models.py             # Defines database tables and ORM classes
+│── ui/
+│   │── main_window.ui     # Main application UI (PyQt Designer)
+│   │── employee_form.ui   # UI for adding/editing employees
+│   │── salary_form.ui     # UI for managing salaries
+│   └── payment_form.ui    # UI for processing payments
+│── controllers/
+│   │── employee_controller.py   # Handles employee logic
+│   │── salary_controller.py     # Handles salary logic
+│   └── payment_controller.py    # Handles salary payments
+│── utils/
+│   │── export_utils.py    # Handles PDF/Excel exports
+│   └── validation.py      # Helper functions for input validation
+│── assets/                # Store images/icons
+└── config.py              # Configuration settings
+🛠️ Features & Functionalities
+1️⃣ Employee Management Module
+Add, Edit, Delete, and Search Employees
+Fields:
+Employee ID (Auto-generated)
+Full Name
+Date of Birth
+Gender
+Phone Number
+Email Address
+Position/Job Title
+Department
+Hire Date
+Salary Type (Fixed/Hourly)
+Basic Salary
+Bank Account Details
+Employee Photo Upload & Display
+List Employees in a TableView/ListView
+Advanced Search & Filters (e.g., by department, salary, hire date)
+2️⃣ Salary & Payroll Management
+Define salary components:
+Basic Salary
+Bonuses
+Deductions (e.g., taxes, insurance)
+Overtime Pay
+Auto-calculate Total Payable Salary
+Generate Payslips for Employees
+Manage Salary Payment Status (Paid / Unpaid)
+Support for different payment modes: Cash, Bank Transfer, Cheque
+3️⃣ Salary Payments & History
+Record salary payments
+Maintain monthly salary history
+Generate payment receipts
+Bulk salary processing (pay all employees at once)
+Filter & Search Salary Records by Employee, Date, or Payment Mode
+4️⃣ Reports & Data Export
+Export Employee List to Excel (XLSX) or PDF
+Export Salary Reports (monthly, yearly, by department)
+Generate Printable Salary Slips
+Generate Payroll Summary Reports
+5️⃣ User Authentication & Roles
+Admin & HR User Roles
+Secure Login System
+Restrict access to salary payments for non-admin users
+🎨 User Interface Design (PyQt5 UI)
+🌟 Main Window
+Navigation Sidebar with Icons:
+Dashboard
+Employees
+Salaries
+Payroll
+Reports
+Settings
+Dark & Light Mode Toggle
+Quick Search Bar
+Dashboard Cards:
+Total Employees
+Total Payroll Cost
+Pending Salaries
+Recent Transactions
+👨‍💼 Employee Management Form
+Form-Based UI with Input Fields
+Save, Update, Delete Buttons
+Photo Upload Button
+TableView to Display Employees
+Search Bar with Filters (Department, Salary Range, etc.)
+💰 Salary Management Form
+Drop-down to Select Employee
+Input Fields for Salary Details
+Auto-calculate Net Pay
+Generate Payslip Button
+Save & Cancel Buttons
+📜 Salary Payment Form
+Select Employee
+Select Payment Mode (Bank, Cash, Cheque)
+Amount to Pay
+Pay Salary Button
+Mark as Paid
+Generate Receipt
+🗃️ Database Schema (SQLite3)
+Table: employees
+sql
+نسخ
+تحرير
+CREATE TABLE employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    dob DATE,
+    gender TEXT,
+    phone TEXT,
+    email TEXT,
+    position TEXT,
+    department TEXT,
+    hire_date DATE,
+    salary_type TEXT,
+    basic_salary REAL,
+    bank_account TEXT
+);
+Table: salaries
+sql
+نسخ
+تحرير
+CREATE TABLE salaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER,
+    base_salary REAL,
+    bonuses REAL,
+    deductions REAL,
+    overtime_pay REAL,
+    total_salary REAL,
+    FOREIGN KEY (employee_id) REFERENCES employees (id)
+);
+Table: salary_payments
+sql
+نسخ
+تحرير
+CREATE TABLE salary_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER,
+    amount_paid REAL,
+    payment_date DATE,
+    payment_mode TEXT,
+    status TEXT DEFAULT 'Pending',
+    FOREIGN KEY (employee_id) REFERENCES employees (id)
+);
+📌 Tech Stack
+Python (Backend Logic)
+PyQt5 (GUI)
+SQLite3 (Database)
+Pandas / OpenPyXL (Excel Export)
+ReportLab (PDF Generation)
+🚀 Additional Features (Optional)
+✅ GraphQL or REST API for future integration
+✅ Multi-language support (English & Arabic UI option)
+✅ Email Notifications for Salary Payments
+✅ Auto Backup System for SQLite Database
+
+🔹 Expected Output
+A fully functional PyQt5 Desktop App
+Modern UI with side navigation & form-based data entry
+Database-driven employee & salary management system
+Salary Payment Processing & reporting
+
+🛠️ Enhancements to Employee Management System (Python, PyQt5, SQLite3)
+🔹 1. Advanced Employee Management Features
+✅ More Employee Details:
+
+Add support for multiple contact numbers, emergency contact details, and home address.
+Include a field for national ID/passport number.
+Add a joining letter/document upload feature (PDF/Image).
+✅ Employee Status Tracking:
+
+Track whether an employee is Active, On Leave, or Resigned.
+Implement an automatic notification system for contract expiry and probation completion.
+✅ Dynamic Department & Job Titles:
+
+Instead of hardcoding job titles, allow HR/Admin to create & manage departments and job titles dynamically.
+✅ Attendance & Work Hours Tracking (Optional for Payroll)
+
+Integrate attendance tracking (via manual input or import CSV).
+Implement shift management for employees working in different shifts.
+Calculate total working hours to determine salary in case of hourly wage employees.
+💰 2. Advanced Payroll & Salary Management
+✅ Multi-Currency Payroll Support
+
+Store salaries in different currencies, with an automatic conversion option (fetch real-time exchange rates via API).
+✅ Bonus & Deduction Rules
+
+Implement custom salary rules:
+Auto-add bonuses based on performance/years of service.
+Auto-deduct late arrivals & absenteeism from salary.
+Tax & insurance deductions based on country-specific rules.
+✅ Salary Slip Generation with QR Code
+
+Generate PDF salary slips with a QR code that employees can scan to verify details.
+Allow employees to view/download salary slips from the system.
+✅ Loan & Advance Salary Management
+
+Allow employees to request salary advances or company loans.
+Deduct loan repayments automatically in monthly payroll.
+Track remaining loan balance for each employee.
+✅ Bulk Salary Processing
+
+Process salaries for all employees at once.
+Mark salaries as paid automatically after processing.
+Generate batch payment reports.
+✅ Integration with Bank Payment APIs (Optional)
+
+Integrate with APIs of banks like PayPal, Stripe, or local banks for automatic salary disbursement.
+📊 3. Improved Reports & Data Export
+✅ Custom Reports
+
+Generate detailed salary reports based on date range, department, employee ID, etc.
+Create a monthly payroll summary with total expenses.
+✅ Data Export Enhancements
+
+Export employee & salary records to Excel, PDF, or CSV.
+Allow filtering before exporting to get only required data.
+✅ Graphical Dashboard & Charts
+
+Add interactive charts (Bar, Pie, Line graphs) for salary expenses & employee distribution.
+Display monthly payroll costs, top earners, and pending payments.
+✅ Audit Log & Change History
+
+Track who made changes to employee records, salaries, and payments.
+Store edit history with timestamps for security & compliance.
+🔐 4. User Authentication & Role Management Enhancements
+✅ Multi-Level User Roles
+
+Add more roles like Super Admin, HR Manager, Accountant, Employee.
+Define role-based access control (RBAC) for sensitive modules.
+✅ Employee Self-Service Portal (Optional)
+
+Employees can log in to view salary slips, request leaves, and update personal details.
+✅ Two-Factor Authentication (2FA)
+
+Add 2FA for Admin login via email or SMS OTP.
+✅ Automatic Data Backup & Restore
+
+Enable scheduled backups of the SQLite3 database to prevent data loss.
+Provide an option to restore backups from a previous state.
+✅ Email Notifications & Alerts
+
+Send email reminders for salary processing, loan repayment, or expiring contracts.
+Notify employees about salary disbursement via email.
+✅ Admin Activity Log
+
+Store all admin activities (adding/deleting employees, salary updates, etc.) in a separate log table.
+🔄 5. UI/UX & Performance Improvements
+✅ Modern UI Overhaul
+
+Improve the UI design with Material UI styles.
+Add Dark Mode / Light Mode toggle.
+Include keyboard shortcuts for faster navigation.
+✅ Faster Search & Filtering
+
+Implement real-time search while typing.
+Enable advanced filtering (by department, salary range, hire date, etc.).
+✅ Drag & Drop File Uploads
+
+Make it easier to upload employee documents (e.g., joining letter, ID proof).
+✅ Multi-Language Support (English & Arabic)
+
+Allow users to switch between English & Arabic.
+Ensure proper text alignment for Arabic (RTL layout support).
+✅ Improve SQLite3 Query Performance
+
+Optimize SQL queries to handle large employee databases efficiently.
+Use database indexing for faster searches.
+📌 Final Deliverables After Enhancement
+1️⃣ Updated Python Codebase with all new features.
+2️⃣ New Database Schema with optimized table structures.
+3️⃣ Modern PyQt5 UI with an improved user experience.
+4️⃣ Automated Payroll & Salary Processing System.
+5️⃣ Comprehensive Reports & Data Export Options.
+6️⃣ Enhanced Security & Authentication Mechanisms.
+7️⃣ Automated Backup & Restore System.
+8️⃣ Fully Documented Code & Usage Guide.
