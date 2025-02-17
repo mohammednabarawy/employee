@@ -132,21 +132,75 @@ class EmployeeController(QObject):
             conn.close()
 
     def get_all_employees(self):
-        """Get all employees"""
+        """Get all employees from the database"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            cursor.execute("SELECT * FROM employees")
-            employees = cursor.fetchall()
+            query = """
+                SELECT e.*, s.base_salary as basic_salary, s.total_salary
+                FROM employees e
+                LEFT JOIN salaries s ON e.id = s.employee_id
+            """
             
-            columns = [description[0] for description in cursor.description]
-            employee_list = [dict(zip(columns, employee)) for employee in employees]
+            cursor.execute(query)
+            columns = [col[0] for col in cursor.description]
+            employees = [dict(zip(columns, row)) for row in cursor.fetchall()]
             
-            return True, employee_list
+            return True, employees
             
         except Exception as e:
             return False, str(e)
+        finally:
+            conn.close()
+
+    def get_employee_stats(self):
+        """Get employee statistics"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            stats = {}
+            
+            # Total employees
+            cursor.execute("SELECT COUNT(*) FROM employees")
+            stats['total_employees'] = cursor.fetchone()[0]
+            
+            # Department distribution
+            cursor.execute("SELECT department, COUNT(*) FROM employees GROUP BY department")
+            stats['department_distribution'] = dict(cursor.fetchall())
+            
+            # Salary ranges
+            cursor.execute("""
+                SELECT 
+                    CASE 
+                        WHEN base_salary < 5000 THEN '0-5,000'
+                        WHEN base_salary < 10000 THEN '5,000-10,000'
+                        WHEN base_salary < 15000 THEN '10,000-15,000'
+                        WHEN base_salary < 20000 THEN '15,000-20,000'
+                        ELSE '20,000+'
+                    END as range,
+                    COUNT(*) as count,
+                    AVG(base_salary) as avg_salary,
+                    SUM(base_salary) as total_salary
+                FROM salaries
+                GROUP BY 
+                    CASE 
+                        WHEN base_salary < 5000 THEN '0-5,000'
+                        WHEN base_salary < 10000 THEN '5,000-10,000'
+                        WHEN base_salary < 15000 THEN '10,000-15,000'
+                        WHEN base_salary < 20000 THEN '15,000-20,000'
+                        ELSE '20,000+'
+                    END
+                ORDER BY MIN(base_salary)
+            """)
+            stats['salary_ranges'] = [dict(zip(['range', 'count', 'avg_salary', 'total_salary'], row)) 
+                                    for row in cursor.fetchall()]
+            
+            return stats
+            
+        except Exception as e:
+            return {}
         finally:
             conn.close()
 

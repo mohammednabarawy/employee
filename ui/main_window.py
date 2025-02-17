@@ -1,11 +1,17 @@
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QStackedWidget,
-                             QLabel, QSizePolicy)
+import sys
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                           QHBoxLayout, QPushButton, QStackedWidget, QLabel)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtGui import QFont, QIcon
 
-from .employee_form import EmployeeForm
-from .salary_form import SalaryForm
+from database import Database
+from controllers.employee_controller import EmployeeController
+from controllers.salary_controller import SalaryController
+from ui.employee_form import EmployeeForm
+from ui.salary_form import SalaryForm
+from ui.dashboard import Dashboard
+from ui.employee_list import EmployeeList
+from ui.reports_form import ReportsForm
 
 class MainWindow(QMainWindow):
     def __init__(self, employee_controller, salary_controller):
@@ -36,15 +42,24 @@ class MainWindow(QMainWindow):
         main_layout.setStretch(0, 1)  # Sidebar takes 1 part
         main_layout.setStretch(1, 4)  # Main content takes 4 parts
 
-        # Create forms
+        # Create pages
+        self.dashboard = Dashboard(self.employee_controller, self.salary_controller)
+        self.employee_list = EmployeeList(self.employee_controller)
         self.employee_form = EmployeeForm(self.employee_controller)
         self.salary_form = SalaryForm(self.salary_controller)
+        self.reports_form = ReportsForm(self.employee_controller, self.salary_controller)
 
-        # Add forms to stacked widget
-        self.stacked_widget.addWidget(self.employee_form)
-        self.stacked_widget.addWidget(self.salary_form)
+        # Add pages to stacked widget
+        self.stacked_widget.addWidget(self.dashboard)  # index 0
+        self.stacked_widget.addWidget(self.employee_list)  # index 1
+        self.stacked_widget.addWidget(self.employee_form)  # index 2
+        self.stacked_widget.addWidget(self.salary_form)  # index 3
+        self.stacked_widget.addWidget(self.reports_form)  # index 4
 
-        self.show()
+        # Connect signals
+        self.employee_list.employee_selected.connect(self.employee_form.load_employee)
+        self.employee_form.employee_saved.connect(self.employee_list.refresh_list)
+        self.employee_form.employee_saved.connect(self.dashboard.refresh_data)
 
     def create_sidebar(self):
         sidebar = QWidget()
@@ -87,18 +102,33 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
 
         # Create navigation buttons
-        self.emp_btn = QPushButton("إدارة الموظفين")
-        self.emp_btn.setCheckable(True)
-        self.emp_btn.setChecked(True)
-        self.emp_btn.clicked.connect(lambda: self.switch_page(0))
+        self.dashboard_btn = QPushButton("لوحة المعلومات")
+        self.dashboard_btn.setCheckable(True)
+        self.dashboard_btn.setChecked(True)
+        self.dashboard_btn.clicked.connect(lambda: self.switch_page(0))
+
+        self.emp_list_btn = QPushButton("قائمة الموظفين")
+        self.emp_list_btn.setCheckable(True)
+        self.emp_list_btn.clicked.connect(lambda: self.switch_page(1))
+
+        self.emp_add_btn = QPushButton("إضافة موظف")
+        self.emp_add_btn.setCheckable(True)
+        self.emp_add_btn.clicked.connect(lambda: self.switch_page(2))
 
         self.salary_btn = QPushButton("إدارة الرواتب")
         self.salary_btn.setCheckable(True)
-        self.salary_btn.clicked.connect(lambda: self.switch_page(1))
+        self.salary_btn.clicked.connect(lambda: self.switch_page(3))
+
+        self.reports_btn = QPushButton("التقارير")
+        self.reports_btn.setCheckable(True)
+        self.reports_btn.clicked.connect(lambda: self.switch_page(4))
 
         # Add buttons to layout
-        layout.addWidget(self.emp_btn)
+        layout.addWidget(self.dashboard_btn)
+        layout.addWidget(self.emp_list_btn)
+        layout.addWidget(self.emp_add_btn)
         layout.addWidget(self.salary_btn)
+        layout.addWidget(self.reports_btn)
         layout.addStretch()
 
         return sidebar
@@ -107,5 +137,13 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(index)
         
         # Update button states
-        self.emp_btn.setChecked(index == 0)
-        self.salary_btn.setChecked(index == 1)
+        buttons = [
+            self.dashboard_btn,
+            self.emp_list_btn,
+            self.emp_add_btn,
+            self.salary_btn,
+            self.reports_btn
+        ]
+        
+        for i, btn in enumerate(buttons):
+            btn.setChecked(i == index)

@@ -204,3 +204,62 @@ class SalaryController(QObject):
             return False, str(e)
         finally:
             conn.close()
+
+    def get_payments_by_date_range(self, start_date, end_date):
+        """Get salary payments within a date range"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT p.*, e.name as employee_name
+                FROM salary_payments p
+                JOIN employees e ON p.employee_id = e.id
+                WHERE payment_date BETWEEN ? AND ?
+                ORDER BY payment_date DESC
+            """
+            
+            cursor.execute(query, (start_date, end_date))
+            columns = [col[0] for col in cursor.description]
+            payments = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            return payments
+            
+        except Exception as e:
+            return []
+        finally:
+            conn.close()
+
+    def get_salary_stats(self):
+        """Get salary statistics"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            stats = {}
+            
+            # Total salary budget
+            cursor.execute("SELECT SUM(total_salary) FROM salaries")
+            stats['total_salary'] = cursor.fetchone()[0] or 0
+            
+            # Average salary
+            cursor.execute("SELECT AVG(total_salary) FROM salaries")
+            stats['average_salary'] = cursor.fetchone()[0] or 0
+            
+            # Recent payments
+            cursor.execute("""
+                SELECT p.*, e.name as employee_name
+                FROM salary_payments p
+                JOIN employees e ON p.employee_id = e.id
+                ORDER BY payment_date DESC
+                LIMIT 10
+            """)
+            columns = [col[0] for col in cursor.description]
+            stats['recent_payments'] = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            return stats
+            
+        except Exception as e:
+            return {}
+        finally:
+            conn.close()

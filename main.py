@@ -9,6 +9,7 @@ from controllers.employee_controller import EmployeeController
 from controllers.salary_controller import SalaryController
 from ui.employee_form import EmployeeForm
 from ui.salary_form import SalaryForm
+from ui.reports_form import ReportsForm
 
 class MainWindow(QMainWindow):
     def __init__(self, employee_controller, salary_controller):
@@ -42,27 +43,28 @@ class MainWindow(QMainWindow):
         # Create forms
         self.employee_form = EmployeeForm(self.employee_controller)
         self.salary_form = SalaryForm(self.salary_controller)
+        self.reports_form = ReportsForm(self.employee_controller, self.salary_controller)
 
         # Add forms to stacked widget
         self.stacked_widget.addWidget(self.employee_form)
         self.stacked_widget.addWidget(self.salary_form)
+        self.stacked_widget.addWidget(self.reports_form)
 
     def create_sidebar(self):
         sidebar = QWidget()
-        sidebar.setObjectName("sidebar")
+        sidebar_layout = QVBoxLayout(sidebar)
         sidebar.setStyleSheet("""
-            QWidget#sidebar {
+            QWidget {
                 background-color: #2c3e50;
-                min-width: 200px;
-                max-width: 200px;
+                color: white;
             }
             QPushButton {
-                color: white;
-                border: none;
                 text-align: right;
-                padding: 15px;
+                padding: 10px;
+                border: none;
+                background-color: transparent;
+                color: white;
                 font-size: 14px;
-                font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #34495e;
@@ -70,46 +72,43 @@ class MainWindow(QMainWindow):
             QPushButton:checked {
                 background-color: #3498db;
             }
-            QLabel {
-                color: white;
-                padding: 20px;
-                font-size: 18px;
-                font-weight: bold;
-            }
         """)
 
-        layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
         # Add title
-        title = QLabel("القائمة الرئيسية")
+        title = QLabel("نظام إدارة الموظفين")
         title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        title.setStyleSheet("font-size: 18px; padding: 20px;")
+        sidebar_layout.addWidget(title)
 
         # Create navigation buttons
-        self.emp_btn = QPushButton("إدارة الموظفين")
-        self.emp_btn.setCheckable(True)
-        self.emp_btn.setChecked(True)
-        self.emp_btn.clicked.connect(lambda: self.switch_page(0))
+        self.employee_btn = QPushButton("إدارة الموظفين")
+        self.employee_btn.setCheckable(True)
+        self.employee_btn.setChecked(True)
+        self.employee_btn.clicked.connect(lambda: self.switch_page(0))
 
         self.salary_btn = QPushButton("إدارة الرواتب")
         self.salary_btn.setCheckable(True)
         self.salary_btn.clicked.connect(lambda: self.switch_page(1))
 
-        # Add buttons to layout
-        layout.addWidget(self.emp_btn)
-        layout.addWidget(self.salary_btn)
-        layout.addStretch()
+        self.reports_btn = QPushButton("التقارير")
+        self.reports_btn.setCheckable(True)
+        self.reports_btn.clicked.connect(lambda: self.switch_page(2))
+
+        # Add buttons to button group
+        self.nav_buttons = [self.employee_btn, self.salary_btn, self.reports_btn]
+
+        # Add buttons to sidebar
+        sidebar_layout.addWidget(self.employee_btn)
+        sidebar_layout.addWidget(self.salary_btn)
+        sidebar_layout.addWidget(self.reports_btn)
+        sidebar_layout.addStretch()
 
         return sidebar
 
     def switch_page(self, index):
         self.stacked_widget.setCurrentIndex(index)
-        
-        # Update button states
-        self.emp_btn.setChecked(index == 0)
-        self.salary_btn.setChecked(index == 1)
+        for i, btn in enumerate(self.nav_buttons):
+            btn.setChecked(i == index)
 
 def main():
     # Create database instance

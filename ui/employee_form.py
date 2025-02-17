@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTextEdit, QFormLayout)
 from PyQt5.QtCore import Qt, pyqtSignal, QDate
 from PyQt5.QtGui import QPixmap
+import os
 from utils.validation import ValidationUtils
 
 class EmployeeForm(QDialog):
@@ -403,30 +404,72 @@ class EmployeeForm(QDialog):
         }
 
     def load_employee(self, employee_data):
-        """Load employee data into the form."""
-        self.employee_id = employee_data.get('id')
-        
-        # Personal Information
+        """Load employee data into the form"""
+        if not employee_data:
+            return
+            
+        # Load basic info
         self.name_edit.setText(employee_data.get('name', ''))
-        self.name_ar_edit.setText(employee_data.get('name_ar', ''))
-        self.dob_edit.setDate(ValidationUtils.parse_date(employee_data.get('dob')))
-        self.gender_combo.setCurrentText(employee_data.get('gender', ''))
-        self.nationality_edit.setCurrentText(employee_data.get('nationality', ''))
-        self.national_id_edit.setText(employee_data.get('national_id', ''))
-        self.passport_edit.setText(employee_data.get('passport', ''))
-        
-        # Contact Information
-        self.phone_edit.setText(employee_data.get('phone', ''))
-        self.phone2_edit.setText(employee_data.get('phone2', ''))
         self.email_edit.setText(employee_data.get('email', ''))
-        self.address_edit.setText(employee_data.get('address', ''))
+        self.phone_edit.setText(employee_data.get('phone', ''))
         
-        # Employment Details
-        self.department_combo.setCurrentText(employee_data.get('department', ''))
-        self.position_combo.setCurrentText(employee_data.get('position', ''))
-        self.hire_date_edit.setDate(ValidationUtils.parse_date(employee_data.get('hire_date')))
-        self.contract_type_combo.setCurrentText(employee_data.get('contract_type', ''))
+        # Load dates
+        dob = employee_data.get('dob', '')
+        if dob:
+            self.dob_edit.setDate(QDate.fromString(dob, Qt.ISODate))
+            
+        hire_date = employee_data.get('hire_date', '')
+        if hire_date:
+            self.hire_date_edit.setDate(QDate.fromString(hire_date, Qt.ISODate))
+        
+        # Load selections
+        gender = employee_data.get('gender', '')
+        gender_index = self.gender_combo.findText(gender)
+        if gender_index >= 0:
+            self.gender_combo.setCurrentIndex(gender_index)
+            
+        position = employee_data.get('position', '')
+        position_index = self.position_combo.findText(position)
+        if position_index >= 0:
+            self.position_combo.setCurrentIndex(position_index)
+            
+        department = employee_data.get('department', '')
+        department_index = self.department_combo.findText(department)
+        if department_index >= 0:
+            self.department_combo.setCurrentIndex(department_index)
+            
+        salary_type = employee_data.get('salary_type', '')
+        salary_type_index = self.salary_type_combo.findText(salary_type)
+        if salary_type_index >= 0:
+            self.salary_type_combo.setCurrentIndex(salary_type_index)
+        
+        # Load numeric values
+        try:
+            basic_salary = float(employee_data.get('basic_salary', 0) or 0)
+            self.basic_salary_spin.setValue(basic_salary)
+        except (ValueError, TypeError):
+            self.basic_salary_spin.setValue(0)
+            
+        # Load bank account
         self.bank_account_edit.setText(employee_data.get('bank_account', ''))
-        self.salary_type_combo.setCurrentText(employee_data.get('salary_type', ''))
-        self.basic_salary_spin.setValue(float(employee_data.get('basic_salary', 0)))
-        self.currency_combo.setCurrentText(employee_data.get('currency', ''))
+        
+        # Load photo if exists
+        photo_path = employee_data.get('photo_path', '')
+        if photo_path and os.path.exists(photo_path):
+            self.load_photo(photo_path)
+        else:
+            self.clear_photo()
+
+    def load_photo(self, photo_path):
+        pixmap = QPixmap(photo_path)
+        self.photo_label.setPixmap(
+            pixmap.scaled(
+                self.photo_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+        )
+
+    def clear_photo(self):
+        self.photo_label.clear()
+        self.photo_path = None
