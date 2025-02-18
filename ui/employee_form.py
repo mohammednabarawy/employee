@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QMessageBox, QFileDialog, QTabWidget, QWidget,
                              QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox,
-                             QTextEdit, QFormLayout)
+                             QTextEdit, QFormLayout, QGroupBox)
 from PyQt5.QtCore import Qt, pyqtSignal, QDate
 from PyQt5.QtGui import QPixmap
 import os
@@ -17,11 +17,63 @@ class EmployeeForm(QDialog):
         self.employee_id = None
         self.current_employee_index = -1
         self.employees = []
+        self.filtered_employees = []
         self.init_ui()
         self.load_employees()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        
+        # Search and Filter Group
+        search_group = QGroupBox("بحث وتصفية")
+        search_layout = QVBoxLayout()
+        
+        # Search bar
+        search_bar_layout = QHBoxLayout()
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("ابحث عن موظف...")
+        self.search_edit.textChanged.connect(self.apply_filters)
+        search_bar_layout.addWidget(self.search_edit)
+        
+        # Filter options
+        filter_layout = QHBoxLayout()
+        
+        # Department filter
+        self.filter_dept_combo = QComboBox()
+        self.filter_dept_combo.addItem("كل الأقسام")
+        self.filter_dept_combo.addItems([
+            "الموارد البشرية", "المالية", "تقنية المعلومات", "المبيعات",
+            "التسويق", "خدمة العملاء", "الإدارة", "المشتريات", "المستودعات"
+        ])
+        self.filter_dept_combo.currentTextChanged.connect(self.apply_filters)
+        filter_layout.addWidget(QLabel("القسم:"))
+        filter_layout.addWidget(self.filter_dept_combo)
+        
+        # Status filter
+        self.filter_status_combo = QComboBox()
+        self.filter_status_combo.addItems(["الكل", "نشط", "غير نشط"])
+        self.filter_status_combo.currentTextChanged.connect(self.apply_filters)
+        filter_layout.addWidget(QLabel("الحالة:"))
+        filter_layout.addWidget(self.filter_status_combo)
+        
+        # Salary range filter
+        self.filter_salary_combo = QComboBox()
+        self.filter_salary_combo.addItems([
+            "كل الرواتب",
+            "أقل من 5,000",
+            "5,000 - 10,000",
+            "10,000 - 15,000",
+            "15,000 - 20,000",
+            "أكثر من 20,000"
+        ])
+        self.filter_salary_combo.currentTextChanged.connect(self.apply_filters)
+        filter_layout.addWidget(QLabel("نطاق الراتب:"))
+        filter_layout.addWidget(self.filter_salary_combo)
+        
+        search_layout.addLayout(search_bar_layout)
+        search_layout.addLayout(filter_layout)
+        search_group.setLayout(search_layout)
+        layout.addWidget(search_group)
         
         # Navigation buttons at the top
         nav_layout, action_layout = self.setup_navigation_buttons()
@@ -64,20 +116,26 @@ class EmployeeForm(QDialog):
         
         # Name fields
         self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("الاسم الكامل")
+        self.name_edit.setToolTip("أدخل الاسم الكامل باللغة العربية أو الإنجليزية")
         layout.addRow("الاسم:", self.name_edit)
         
         self.name_ar_edit = QLineEdit()
+        self.name_ar_edit.setPlaceholderText("الاسم باللغة العربية")
+        self.name_ar_edit.setToolTip("أدخل الاسم الكامل باللغة العربية")
         layout.addRow("الاسم بالعربية:", self.name_ar_edit)
         
         # Date of Birth
         self.dob_edit = QDateEdit()
         self.dob_edit.setCalendarPopup(True)
         self.dob_edit.setDate(QDate.currentDate())
+        self.dob_edit.setToolTip("اختر تاريخ الميلاد من التقويم")
         layout.addRow("تاريخ الميلاد:", self.dob_edit)
         
         # Gender
         self.gender_combo = QComboBox()
         self.gender_combo.addItems(["ذكر", "أنثى"])
+        self.gender_combo.setToolTip("اختر الجنس")
         layout.addRow("الجنس:", self.gender_combo)
         
         # Nationality
@@ -87,13 +145,18 @@ class EmployeeForm(QDialog):
             "سعودي", "إماراتي", "كويتي", "بحريني", "عماني", "قطري", "مصري",
             "أردني", "لبناني", "سوري", "عراقي", "يمني", "سوداني", "فلسطيني"
         ])
+        self.nationality_edit.setToolTip("اختر الجنسية أو أدخل جنسية جديدة")
         layout.addRow("الجنسية:", self.nationality_edit)
         
         # ID Numbers
         self.national_id_edit = QLineEdit()
+        self.national_id_edit.setPlaceholderText("10-14 رقم")
+        self.national_id_edit.setToolTip("أدخل رقم الهوية (10-14 رقم)")
         layout.addRow("رقم الهوية:", self.national_id_edit)
         
         self.passport_edit = QLineEdit()
+        self.passport_edit.setPlaceholderText("مثال: A1234567")
+        self.passport_edit.setToolTip("أدخل رقم جواز السفر (6-9 أحرف وأرقام)")
         layout.addRow("رقم جواز السفر:", self.passport_edit)
         
         tab.setLayout(layout)
@@ -105,18 +168,26 @@ class EmployeeForm(QDialog):
         
         # Phone numbers
         self.phone_edit = QLineEdit()
+        self.phone_edit.setPlaceholderText("05xxxxxxxx")
+        self.phone_edit.setToolTip("أدخل رقم الهاتف (8-15 رقم)")
         layout.addRow("رقم الهاتف:", self.phone_edit)
         
         self.phone2_edit = QLineEdit()
+        self.phone2_edit.setPlaceholderText("05xxxxxxxx (اختياري)")
+        self.phone2_edit.setToolTip("أدخل رقم الهاتف البديل (8-15 رقم)")
         layout.addRow("رقم الهاتف البديل:", self.phone2_edit)
         
         # Email
         self.email_edit = QLineEdit()
+        self.email_edit.setPlaceholderText("example@domain.com")
+        self.email_edit.setToolTip("أدخل البريد الإلكتروني بالصيغة الصحيحة")
         layout.addRow("البريد الإلكتروني:", self.email_edit)
         
         # Address
         self.address_edit = QTextEdit()
         self.address_edit.setMaximumHeight(100)
+        self.address_edit.setPlaceholderText("أدخل العنوان التفصيلي")
+        self.address_edit.setToolTip("أدخل العنوان التفصيلي متضمناً المدينة والحي والشارع")
         layout.addRow("العنوان:", self.address_edit)
         
         tab.setLayout(layout)
@@ -133,6 +204,7 @@ class EmployeeForm(QDialog):
             "الموارد البشرية", "المالية", "تقنية المعلومات", "المبيعات",
             "التسويق", "خدمة العملاء", "الإدارة", "المشتريات", "المستودعات"
         ])
+        self.department_combo.setToolTip("اختر القسم أو أدخل قسم جديد")
         layout.addRow("القسم:", self.department_combo)
         
         # Position
@@ -142,12 +214,14 @@ class EmployeeForm(QDialog):
             "مدير", "مشرف", "موظف", "محاسب", "مهندس", "فني",
             "مندوب مبيعات", "سكرتير", "مدخل بيانات"
         ])
+        self.position_combo.setToolTip("اختر المنصب أو أدخل منصب جديد")
         layout.addRow("المنصب:", self.position_combo)
         
         # Hire Date
         self.hire_date_edit = QDateEdit()
         self.hire_date_edit.setCalendarPopup(True)
         self.hire_date_edit.setDate(QDate.currentDate())
+        self.hire_date_edit.setToolTip("اختر تاريخ التعيين من التقويم")
         layout.addRow("تاريخ التعيين:", self.hire_date_edit)
         
         # Contract Type
@@ -156,10 +230,13 @@ class EmployeeForm(QDialog):
             "دوام كامل", "دوام جزئي", "عقد", "مؤقت",
             "موسمي", "تجريبي", "عن بعد"
         ])
+        self.contract_type_combo.setToolTip("اختر نوع العقد")
         layout.addRow("نوع العقد:", self.contract_type_combo)
         
         # Bank Account
         self.bank_account_edit = QLineEdit()
+        self.bank_account_edit.setPlaceholderText("SA1234567890123456789012")
+        self.bank_account_edit.setToolTip("أدخل رقم الآيبان (IBAN) المكون من 24 رقم")
         layout.addRow("رقم الحساب البنكي:", self.bank_account_edit)
         
         # Salary Type
@@ -168,6 +245,7 @@ class EmployeeForm(QDialog):
             "شهري", "أسبوعي", "يومي", "بالساعة",
             "بالمشروع", "بالعمولة"
         ])
+        self.salary_type_combo.setToolTip("اختر نوع الراتب")
         layout.addRow("نوع الراتب:", self.salary_type_combo)
         
         # Basic Salary
@@ -175,6 +253,7 @@ class EmployeeForm(QDialog):
         self.basic_salary_spin.setRange(0, 1000000)
         self.basic_salary_spin.setDecimals(2)
         self.basic_salary_spin.setSingleStep(100)
+        self.basic_salary_spin.setToolTip("أدخل قيمة الراتب الأساسي")
         layout.addRow("الراتب الأساسي:", self.basic_salary_spin)
         
         # Currency
@@ -183,6 +262,7 @@ class EmployeeForm(QDialog):
             "ريال سعودي", "درهم إماراتي", "دينار كويتي", "دينار بحريني",
             "ريال عماني", "ريال قطري", "جنيه مصري", "دولار أمريكي", "يورو"
         ])
+        self.currency_combo.setToolTip("اختر عملة الراتب")
         layout.addRow("العملة:", self.currency_combo)
         
         tab.setLayout(layout)
@@ -229,25 +309,25 @@ class EmployeeForm(QDialog):
         return nav_layout, action_layout
 
     def update_navigation_buttons(self):
-        has_employees = len(self.employees) > 0
+        """Update the state of navigation buttons based on current position"""
+        has_employees = len(self.filtered_employees) > 0
         current_index = self.current_employee_index
         
         self.first_btn.setEnabled(has_employees and current_index > 0)
         self.prev_btn.setEnabled(has_employees and current_index > 0)
-        self.next_btn.setEnabled(has_employees and current_index < len(self.employees) - 1)
-        self.last_btn.setEnabled(has_employees and current_index < len(self.employees) - 1)
+        self.next_btn.setEnabled(has_employees and current_index < len(self.filtered_employees) - 1)
+        self.last_btn.setEnabled(has_employees and current_index < len(self.filtered_employees) - 1)
+        self.delete_btn.setEnabled(has_employees and self.employee_id is not None)
         
-        if has_employees:
+        if has_employees and current_index >= 0:
             self.employee_count_label.setText(
-                f"موظف {current_index + 1} من {len(self.employees)}"
+                f"موظف {current_index + 1} من {len(self.filtered_employees)} (الإجمالي: {len(self.employees)})"
             )
         else:
             self.employee_count_label.setText("لا يوجد موظفين")
-        
-        self.delete_btn.setEnabled(has_employees)
 
     def go_to_first(self):
-        if self.employees:
+        if self.filtered_employees:
             self.current_employee_index = 0
             self.load_current_employee()
 
@@ -257,20 +337,25 @@ class EmployeeForm(QDialog):
             self.load_current_employee()
 
     def go_to_next(self):
-        if self.current_employee_index < len(self.employees) - 1:
+        if self.current_employee_index < len(self.filtered_employees) - 1:
             self.current_employee_index += 1
             self.load_current_employee()
 
     def go_to_last(self):
-        if self.employees:
-            self.current_employee_index = len(self.employees) - 1
+        if self.filtered_employees:
+            self.current_employee_index = len(self.filtered_employees) - 1
             self.load_current_employee()
 
     def load_current_employee(self):
-        if 0 <= self.current_employee_index < len(self.employees):
-            employee = self.employees[self.current_employee_index]
+        """Load the currently selected employee into the form"""
+        if 0 <= self.current_employee_index < len(self.filtered_employees):
+            employee = self.filtered_employees[self.current_employee_index]
+            self.employee_id = employee.get('id')  # Set employee_id here
             self.load_employee(employee)
-            self.update_navigation_buttons()
+        else:
+            self.employee_id = None
+            self.clear_form()
+        self.update_navigation_buttons()
 
     def new_employee(self):
         self.employee_id = None
@@ -303,12 +388,13 @@ class EmployeeForm(QDialog):
 
     def delete_employee(self):
         if not self.employee_id:
+            QMessageBox.warning(self, "خطأ", "لم يتم تحديد موظف للحذف")
             return
             
         reply = QMessageBox.question(
             self, 
             "تأكيد الحذف",
-            "هل أنت متأكد من حذف هذا الموظف؟",
+            "هل أنت متأكد من حذف هذا الموظف؟\nسيتم حذف جميع البيانات المتعلقة به مثل الرواتب والحضور والإجازات.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -316,24 +402,49 @@ class EmployeeForm(QDialog):
         if reply == QMessageBox.Yes:
             success, error = self.employee_controller.delete_employee(self.employee_id)
             if success:
-                QMessageBox.information(self, "نجاح", "تم حذف الموظف بنجاح")
-                self.load_employees()
-                if self.employees:
-                    self.current_employee_index = 0
+                QMessageBox.information(self, "نجاح", "تم حذف الموظف وجميع البيانات المتعلقة به بنجاح")
+                # Remove the deleted employee from the list
+                self.employees = [emp for emp in self.employees if emp['id'] != self.employee_id]
+                self.filtered_employees = [emp for emp in self.filtered_employees if emp['id'] != self.employee_id]
+                self.employee_id = None
+                
+                # Update navigation
+                if self.filtered_employees:
+                    if self.current_employee_index >= len(self.filtered_employees):
+                        self.current_employee_index = len(self.filtered_employees) - 1
                     self.load_current_employee()
                 else:
+                    self.current_employee_index = -1
                     self.clear_form()
-                    self.update_navigation_buttons()
+                self.update_navigation_buttons()
             else:
                 QMessageBox.warning(self, "خطأ", f"فشل في حذف الموظف: {error}")
 
     def load_employees(self):
+        """Load all employees and initialize the form"""
         success, employees = self.employee_controller.get_all_employees()
         if success:
             self.employees = employees
-            if self.employees:
+            self.filtered_employees = employees.copy()
+            
+            # Only reset current_employee_index if there are no employees
+            # or if it's the first load (current_employee_index == -1)
+            if not employees:
+                self.current_employee_index = -1
+                self.employee_id = None
+                self.clear_form()
+            elif self.current_employee_index == -1 and employees:
                 self.current_employee_index = 0
                 self.load_current_employee()
+                
+            self.update_navigation_buttons()
+        else:
+            QMessageBox.warning(self, "خطأ", f"حدث خطأ أثناء تحميل بيانات الموظفين: {employees}")
+            self.employees = []
+            self.filtered_employees = []
+            self.current_employee_index = -1
+            self.employee_id = None
+            self.clear_form()
             self.update_navigation_buttons()
 
     def upload_photo(self):
@@ -361,21 +472,42 @@ class EmployeeForm(QDialog):
         # Validate data
         valid, error = ValidationUtils.validate_employee_data(data)
         if not valid:
-            QMessageBox.warning(self, "خطأ في التحقق", error)
+            QMessageBox.warning(
+                self,
+                "خطأ في التحقق",
+                f"{error}\n\nملاحظات:\n" +
+                "• الاسم وتاريخ التعيين فقط مطلوبين\n" +
+                "• رقم الهاتف يجب أن يكون 8-15 رقم\n" +
+                "• البريد الإلكتروني يجب أن يكون بالصيغة الصحيحة\n" +
+                "• رقم الهوية يجب أن يكون 10-14 رقم\n" +
+                "• رقم جواز السفر يجب أن يكون 6-9 أحرف وأرقام"
+            )
             return
         
-        if self.employee_id:  # Update existing employee
-            success, error = self.employee_controller.update_employee(self.employee_id, data)
+        current_id = self.employee_id
+        if current_id:  # Update existing employee
+            success, error = self.employee_controller.update_employee(current_id, data)
             if success:
                 QMessageBox.information(self, "نجاح", "تم تحديث بيانات الموظف بنجاح")
+                # Reload employees while maintaining current position
                 self.load_employees()
+                # Find and select the updated employee
+                for i, emp in enumerate(self.filtered_employees):
+                    if emp['id'] == current_id:
+                        self.current_employee_index = i
+                        self.load_current_employee()
+                        break
             else:
                 QMessageBox.warning(self, "خطأ", f"فشل في تحديث بيانات الموظف: {error}")
         else:  # Add new employee
             success, error = self.employee_controller.add_employee(data)
             if success:
                 QMessageBox.information(self, "نجاح", "تم إضافة الموظف بنجاح")
+                # Reload employees and select the new employee (which will be first in the list)
                 self.load_employees()
+                if self.filtered_employees:
+                    self.current_employee_index = 0
+                    self.load_current_employee()
             else:
                 QMessageBox.warning(self, "خطأ", f"فشل في إضافة الموظف: {error}")
 
@@ -388,19 +520,21 @@ class EmployeeForm(QDialog):
             'gender': self.gender_combo.currentText().strip(),
             'nationality': self.nationality_edit.currentText().strip(),
             'national_id': self.national_id_edit.text().strip(),
-            'passport': self.passport_edit.text().strip(),
-            'phone': self.phone_edit.text().strip(),
-            'phone2': self.phone2_edit.text().strip(),
+            'passport_number': self.passport_edit.text().strip(),
+            'phone_primary': self.phone_edit.text().strip(),
+            'phone_secondary': self.phone2_edit.text().strip(),
             'email': self.email_edit.text().strip(),
             'address': self.address_edit.toPlainText().strip(),
-            'department': self.department_combo.currentText().strip(),
-            'position': self.position_combo.currentText().strip(),
+            'department_name': self.department_combo.currentText().strip(),
+            'position_title': self.position_combo.currentText().strip(),
             'hire_date': self.hire_date_edit.date().toString('yyyy-MM-dd'),
             'contract_type': self.contract_type_combo.currentText().strip(),
             'bank_account': self.bank_account_edit.text().strip(),
             'salary_type': self.salary_type_combo.currentText().strip(),
             'basic_salary': self.basic_salary_spin.value(),
-            'currency': self.currency_combo.currentText().strip()
+            'salary_currency': self.currency_combo.currentText().strip(),
+            'photo_path': self.photo_path,
+            'employee_status': 'نشط'  # Active status for new employees
         }
 
     def load_employee(self, employee_data):
@@ -408,68 +542,132 @@ class EmployeeForm(QDialog):
         if not employee_data:
             return
             
+        # Set employee ID
+        self.employee_id = employee_data.get('id')
+            
         # Load basic info
         self.name_edit.setText(employee_data.get('name', ''))
+        self.name_ar_edit.setText(employee_data.get('name_ar', ''))
         self.email_edit.setText(employee_data.get('email', ''))
-        self.phone_edit.setText(employee_data.get('phone', ''))
+        self.phone_edit.setText(employee_data.get('phone_primary', ''))
+        self.phone2_edit.setText(employee_data.get('phone_secondary', ''))
+        self.national_id_edit.setText(employee_data.get('national_id', ''))
+        self.passport_edit.setText(employee_data.get('passport_number', ''))
         
-        # Load dates
-        dob = employee_data.get('dob', '')
-        if dob:
-            self.dob_edit.setDate(QDate.fromString(dob, Qt.ISODate))
-            
-        hire_date = employee_data.get('hire_date', '')
-        if hire_date:
-            self.hire_date_edit.setDate(QDate.fromString(hire_date, Qt.ISODate))
-        
-        # Load selections
-        gender = employee_data.get('gender', '')
-        gender_index = self.gender_combo.findText(gender)
-        if gender_index >= 0:
-            self.gender_combo.setCurrentIndex(gender_index)
-            
-        position = employee_data.get('position', '')
-        position_index = self.position_combo.findText(position)
-        if position_index >= 0:
-            self.position_combo.setCurrentIndex(position_index)
-            
-        department = employee_data.get('department', '')
-        department_index = self.department_combo.findText(department)
-        if department_index >= 0:
-            self.department_combo.setCurrentIndex(department_index)
-            
-        salary_type = employee_data.get('salary_type', '')
-        salary_type_index = self.salary_type_combo.findText(salary_type)
-        if salary_type_index >= 0:
-            self.salary_type_combo.setCurrentIndex(salary_type_index)
-        
-        # Load numeric values
-        try:
-            basic_salary = float(employee_data.get('basic_salary', 0) or 0)
-            self.basic_salary_spin.setValue(basic_salary)
-        except (ValueError, TypeError):
-            self.basic_salary_spin.setValue(0)
-            
-        # Load bank account
-        self.bank_account_edit.setText(employee_data.get('bank_account', ''))
-        
-        # Load photo if exists
-        photo_path = employee_data.get('photo_path', '')
-        if photo_path and os.path.exists(photo_path):
-            self.load_photo(photo_path)
+        # Load photo if available
+        if 'photo_pixmap' in employee_data:
+            self.photo_label.setPixmap(
+                employee_data['photo_pixmap'].scaled(
+                    self.photo_label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+            )
+            self.photo_path = None  # Clear photo path since we're using DB photo
         else:
             self.clear_photo()
-
-    def load_photo(self, photo_path):
-        pixmap = QPixmap(photo_path)
-        self.photo_label.setPixmap(
-            pixmap.scaled(
-                self.photo_label.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-        )
+        
+        # Load dates
+        if employee_data.get('dob'):
+            self.dob_edit.setDate(QDate.fromString(employee_data['dob'], 'yyyy-MM-dd'))
+        if employee_data.get('hire_date'):
+            self.hire_date_edit.setDate(QDate.fromString(employee_data['hire_date'], 'yyyy-MM-dd'))
+        
+        # Load combo box selections
+        if employee_data.get('gender'):
+            index = self.gender_combo.findText(employee_data['gender'])
+            if index >= 0:
+                self.gender_combo.setCurrentIndex(index)
+                
+        if employee_data.get('nationality'):
+            index = self.nationality_edit.findText(employee_data['nationality'])
+            if index >= 0:
+                self.nationality_edit.setCurrentIndex(index)
+            else:
+                self.nationality_edit.setCurrentText(employee_data['nationality'])
+                
+        if employee_data.get('department_name'):
+            index = self.department_combo.findText(employee_data['department_name'])
+            if index >= 0:
+                self.department_combo.setCurrentIndex(index)
+            else:
+                self.department_combo.setCurrentText(employee_data['department_name'])
+                
+        if employee_data.get('position_title'):
+            index = self.position_combo.findText(employee_data['position_title'])
+            if index >= 0:
+                self.position_combo.setCurrentIndex(index)
+            else:
+                self.position_combo.setCurrentText(employee_data['position_title'])
+                
+        if employee_data.get('contract_type'):
+            index = self.contract_type_combo.findText(employee_data['contract_type'])
+            if index >= 0:
+                self.contract_type_combo.setCurrentIndex(index)
+                
+        if employee_data.get('salary_type'):
+            index = self.salary_type_combo.findText(employee_data['salary_type'])
+            if index >= 0:
+                self.salary_type_combo.setCurrentIndex(index)
+                
+        if employee_data.get('salary_currency'):
+            index = self.currency_combo.findText(employee_data['salary_currency'])
+            if index >= 0:
+                self.currency_combo.setCurrentIndex(index)
+        
+        # Load address
+        self.address_edit.setPlainText(employee_data.get('address', ''))
+        
+        # Load salary
+        self.basic_salary_spin.setValue(float(employee_data.get('basic_salary', 0) or 0))
+        
+        # Load bank account
+        self.bank_account_edit.setText(employee_data.get('bank_account', ''))
 
     def clear_photo(self):
         self.photo_label.clear()
         self.photo_path = None
+
+    def apply_filters(self):
+        """Apply search and filter criteria to employees list"""
+        search_text = self.search_edit.text().lower()
+        department = self.filter_dept_combo.currentText()
+        status = self.filter_status_combo.currentText()
+        salary_range = self.filter_salary_combo.currentText()
+        
+        self.filtered_employees = []
+        
+        for emp in self.employees:
+            # Check search text
+            if search_text and not any(search_text in str(value).lower() 
+                                     for value in emp.values()):
+                continue
+            
+            # Check department
+            if department != "كل الأقسام" and emp.get('department_name') != department:
+                continue
+            
+            # Check status
+            if status != "الكل" and emp.get('employee_status') != status:
+                continue
+            
+            # Check salary range
+            salary = float(emp.get('basic_salary', 0) or 0)
+            if salary_range != "كل الرواتب":
+                if salary_range == "أقل من 5,000" and salary >= 5000:
+                    continue
+                elif salary_range == "5,000 - 10,000" and (salary < 5000 or salary >= 10000):
+                    continue
+                elif salary_range == "10,000 - 15,000" and (salary < 10000 or salary >= 15000):
+                    continue
+                elif salary_range == "15,000 - 20,000" and (salary < 15000 or salary >= 20000):
+                    continue
+                elif salary_range == "أكثر من 20,000" and salary < 20000:
+                    continue
+            
+            self.filtered_employees.append(emp)
+        
+        # Reset navigation
+        self.current_employee_index = -1 if not self.filtered_employees else 0
+        self.load_current_employee()
+        self.update_navigation_buttons()

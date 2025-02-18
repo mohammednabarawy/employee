@@ -1,4 +1,17 @@
 CREATE_TABLES_SQL = {
+    'users': '''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            email TEXT UNIQUE,
+            role TEXT NOT NULL,
+            is_active BOOLEAN DEFAULT 1,
+            last_login TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
     'employees': '''
         CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20,13 +33,14 @@ CREATE_TABLES_SQL = {
             emergency_contact_name TEXT,
             emergency_contact_phone TEXT,
             emergency_contact_relation TEXT,
-            photo_path TEXT,
+            photo_data BLOB,
+            photo_mime_type TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER,
             updated_by INTEGER,
-            FOREIGN KEY (created_by) REFERENCES users (id),
-            FOREIGN KEY (updated_by) REFERENCES users (id)
+            FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL,
+            FOREIGN KEY (updated_by) REFERENCES users (id) ON DELETE SET NULL
         )
     ''',
     
@@ -241,21 +255,6 @@ CREATE_TABLES_SQL = {
             created_by INTEGER,
             FOREIGN KEY (employee_id) REFERENCES employees (id),
             FOREIGN KEY (created_by) REFERENCES users (id)
-        )
-    ''',
-    
-    'users': '''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            role TEXT NOT NULL,
-            employee_id INTEGER,
-            is_active BOOLEAN DEFAULT 1,
-            last_login TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (employee_id) REFERENCES employees (id)
         )
     ''',
     

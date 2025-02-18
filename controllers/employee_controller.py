@@ -1,5 +1,8 @@
 from datetime import datetime
 from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtGui import QPixmap, QImage
+import os
+import mimetypes
 
 class EmployeeController(QObject):
     employee_added = pyqtSignal(dict)
@@ -9,6 +12,24 @@ class EmployeeController(QObject):
     def __init__(self, database):
         super().__init__()
         self.db = database
+    
+    def _get_mime_type(self, file_path):
+        """Get MIME type of a file"""
+        mime_type, _ = mimetypes.guess_type(file_path)
+        return mime_type or 'application/octet-stream'
+    
+    def _read_image_file(self, file_path):
+        """Read image file and return its binary data"""
+        with open(file_path, 'rb') as f:
+            return f.read()
+    
+    def _pixmap_from_data(self, photo_data, mime_type):
+        """Convert binary image data to QPixmap"""
+        if not photo_data:
+            return None
+        
+        image = QImage.fromData(photo_data, mime_type.split('/')[-1].upper())
+        return QPixmap.fromImage(image)
 
     def add_employee(self, employee_data):
         """Add a new employee to the database"""
@@ -16,34 +37,110 @@ class EmployeeController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            query = """
-                INSERT INTO employees (
-                    name, dob, gender, phone, email, position,
-                    department, hire_date, salary_type, basic_salary,
-                    bank_account, photo_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
+            cursor.execute("BEGIN TRANSACTION")
             
-            cursor.execute(query, (
-                employee_data['name'],
-                employee_data['dob'],
-                employee_data['gender'],
-                employee_data['phone'],
-                employee_data['email'],
-                employee_data['position'],
-                employee_data['department'],
-                employee_data['hire_date'],
-                employee_data['salary_type'],
-                employee_data['basic_salary'],
-                employee_data['bank_account'],
-                employee_data.get('photo_path', None)
-            ))
-            
-            employee_id = cursor.lastrowid
-            conn.commit()
-            employee_data['id'] = employee_id
-            self.employee_added.emit(employee_data)
-            return True, employee_id
+            try:
+                # Get admin user id for created_by
+                cursor.execute("SELECT id FROM users WHERE username = 'admin' LIMIT 1")
+                admin_id = cursor.fetchone()[0]
+                
+                # Handle photo data
+                photo_data = None
+                photo_mime_type = None
+                if 'photo_path' in employee_data and employee_data['photo_path']:
+                    photo_data = self._read_image_file(employee_data['photo_path'])
+                    photo_mime_type = self._get_mime_type(employee_data['photo_path'])
+                
+                # Insert into employees table
+                employee_query = """
+                    INSERT INTO employees (
+                        name, name_ar, dob, gender, nationality,
+                        national_id, passport_number, phone_primary,
+                        phone_secondary, email, address,
+                        photo_data, photo_mime_type,
+                        created_by, updated_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """
+                
+                cursor.execute(employee_query, (
+                    employee_data.get('name'),
+                    employee_data.get('name_ar'),
+                    employee_data.get('dob'),
+                    employee_data.get('gender'),
+                    employee_data.get('nationality'),
+                    employee_data.get('national_id'),
+                    employee_data.get('passport_number'),
+                    employee_data.get('phone_primary'),
+                    employee_data.get('phone_secondary'),
+                    employee_data.get('email'),
+                    employee_data.get('address'),
+                    photo_data,
+                    photo_mime_type,
+                    admin_id,  # created_by
+                    admin_id   # updated_by
+                ))
+                
+                employee_id = cursor.lastrowid
+                
+                # Get or create department
+                department_name = employee_data.get('department_name', 'الإدارة العامة')
+                cursor.execute("""
+                    INSERT OR IGNORE INTO departments (name, code, created_by, updated_by)
+                    VALUES (?, ?, ?, ?)
+                """, (department_name, department_name[:3].upper(), admin_id, admin_id))
+                
+                cursor.execute("SELECT id FROM departments WHERE name = ?", (department_name,))
+                department_id = cursor.fetchone()[0]
+                
+                # Get or create position
+                position_title = employee_data.get('position_title', 'موظف')
+                cursor.execute("""
+                    INSERT OR IGNORE INTO positions (title, code, created_by, updated_by)
+                    VALUES (?, ?, ?, ?)
+                """, (position_title, position_title[:3].upper(), admin_id, admin_id))
+                
+                cursor.execute("SELECT id FROM positions WHERE title = ?", (position_title,))
+                position_id = cursor.fetchone()[0]
+                
+                # Insert into employment_details table
+                employment_query = """
+                    INSERT INTO employment_details (
+                        employee_id, department_id, position_id,
+                        hire_date, contract_type, employee_status,
+                        basic_salary, salary_currency, salary_type,
+                        bank_account, created_by, updated_by,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """
+                
+                cursor.execute(employment_query, (
+                    employee_id,
+                    department_id,
+                    position_id,
+                    employee_data.get('hire_date'),
+                    employee_data.get('contract_type', 'دوام كامل'),
+                    employee_data.get('employee_status', 'نشط'),
+                    employee_data.get('basic_salary', 0),
+                    employee_data.get('salary_currency', 'ريال سعودي'),
+                    employee_data.get('salary_type', 'شهري'),
+                    employee_data.get('bank_account', ''),
+                    admin_id,
+                    admin_id
+                ))
+                
+                cursor.execute("COMMIT")
+                
+                # Convert photo data to QPixmap for the UI
+                if photo_data and photo_mime_type:
+                    employee_data['photo_pixmap'] = self._pixmap_from_data(photo_data, photo_mime_type)
+                
+                employee_data['id'] = employee_id
+                self.employee_added.emit(employee_data)
+                return True, employee_id
+                
+            except Exception as e:
+                cursor.execute("ROLLBACK")
+                raise e
             
         except Exception as e:
             return False, str(e)
@@ -56,35 +153,93 @@ class EmployeeController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            query = """
-                UPDATE employees SET
-                    name = ?, dob = ?, gender = ?, phone = ?,
-                    email = ?, position = ?, department = ?,
-                    hire_date = ?, salary_type = ?, basic_salary = ?,
-                    bank_account = ?, photo_path = ?
-                WHERE id = ?
-            """
+            cursor.execute("BEGIN TRANSACTION")
             
-            cursor.execute(query, (
-                employee_data['name'],
-                employee_data['dob'],
-                employee_data['gender'],
-                employee_data['phone'],
-                employee_data['email'],
-                employee_data['position'],
-                employee_data['department'],
-                employee_data['hire_date'],
-                employee_data['salary_type'],
-                employee_data['basic_salary'],
-                employee_data['bank_account'],
-                employee_data.get('photo_path', None),
-                employee_id
-            ))
-            
-            conn.commit()
-            employee_data['id'] = employee_id
-            self.employee_updated.emit(employee_data)
-            return True, None
+            try:
+                # Get admin user id for updated_by
+                cursor.execute("SELECT id FROM users WHERE username = 'admin' LIMIT 1")
+                admin_id = cursor.fetchone()[0]
+                
+                # Handle photo data
+                photo_data = None
+                photo_mime_type = None
+                if 'photo_path' in employee_data and employee_data['photo_path']:
+                    photo_data = self._read_image_file(employee_data['photo_path'])
+                    photo_mime_type = self._get_mime_type(employee_data['photo_path'])
+                
+                # Update employees table
+                employee_query = """
+                    UPDATE employees SET
+                        name = ?, name_ar = ?, dob = ?, gender = ?,
+                        nationality = ?, national_id = ?, passport_number = ?,
+                        phone_primary = ?, phone_secondary = ?, email = ?,
+                        address = ?, city = ?, country = ?,
+                        emergency_contact_name = ?, emergency_contact_phone = ?,
+                        emergency_contact_relation = ?, photo_data = ?, photo_mime_type = ?,
+                        updated_by = ?
+                    WHERE id = ?
+                """
+                
+                cursor.execute(employee_query, (
+                    employee_data.get('name'),
+                    employee_data.get('name_ar'),
+                    employee_data.get('dob'),
+                    employee_data.get('gender'),
+                    employee_data.get('nationality'),
+                    employee_data.get('national_id'),
+                    employee_data.get('passport_number'),
+                    employee_data.get('phone_primary'),
+                    employee_data.get('phone_secondary'),
+                    employee_data.get('email'),
+                    employee_data.get('address'),
+                    employee_data.get('city'),
+                    employee_data.get('country'),
+                    employee_data.get('emergency_contact_name'),
+                    employee_data.get('emergency_contact_phone'),
+                    employee_data.get('emergency_contact_relation'),
+                    photo_data,
+                    photo_mime_type,
+                    admin_id,  # updated_by
+                    employee_id
+                ))
+                
+                # Update employment_details table
+                employment_query = """
+                    UPDATE employment_details SET
+                        hire_date = ?,
+                        contract_type = ?,
+                        employee_status = ?,
+                        basic_salary = ?,
+                        salary_currency = ?,
+                        salary_type = ?,
+                        bank_account = ?
+                    WHERE employee_id = ?
+                """
+                
+                cursor.execute(employment_query, (
+                    employee_data.get('hire_date'),
+                    employee_data.get('contract_type', 'دوام كامل'),
+                    employee_data.get('employee_status', 'نشط'),
+                    employee_data.get('basic_salary', 0),
+                    employee_data.get('salary_currency', 'SAR'),
+                    employee_data.get('salary_type', 'شهري'),
+                    employee_data.get('bank_account'),
+                    employee_id
+                ))
+                
+                cursor.execute("COMMIT")
+                
+                # Convert photo data to QPixmap for the UI
+                if photo_data and photo_mime_type:
+                    employee_data['photo_pixmap'] = self._pixmap_from_data(photo_data, photo_mime_type)
+                
+                employee_data['id'] = employee_id
+                self.employee_updated.emit(employee_data)
+                return True, None
+                
+            except Exception as e:
+                cursor.execute("ROLLBACK")
+                raise e
             
         except Exception as e:
             return False, str(e)
@@ -97,14 +252,51 @@ class EmployeeController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            # First check if there are any salary records
-            cursor.execute("DELETE FROM salaries WHERE employee_id = ?", (employee_id,))
-            cursor.execute("DELETE FROM salary_payments WHERE employee_id = ?", (employee_id,))
-            cursor.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
+            cursor.execute("BEGIN TRANSACTION")
             
-            conn.commit()
-            self.employee_deleted.emit(employee_id)
-            return True, None
+            try:
+                # Check if employee exists
+                cursor.execute("SELECT id FROM employees WHERE id = ?", (employee_id,))
+                if not cursor.fetchone():
+                    cursor.execute("ROLLBACK")
+                    return False, "الموظف غير موجود"
+                
+                # Check if employee is a manager in departments
+                cursor.execute("SELECT id FROM departments WHERE manager_id = ?", (employee_id,))
+                if cursor.fetchone():
+                    cursor.execute("ROLLBACK")
+                    return False, "لا يمكن حذف الموظف لأنه مدير قسم. قم بتعيين مدير آخر أولاً"
+                
+                # Check if employee is a manager for other employees
+                cursor.execute("SELECT id FROM employment_details WHERE manager_id = ?", (employee_id,))
+                if cursor.fetchone():
+                    cursor.execute("ROLLBACK")
+                    return False, "لا يمكن حذف الموظف لأنه مدير لموظفين آخرين. قم بتعيين مدير آخر لهم أولاً"
+                
+                # Delete records in correct order to respect foreign key constraints
+                tables = [
+                    'payroll_details',
+                    'payroll',
+                    'employee_salary_components',
+                    'loans',
+                    'leaves',
+                    'attendance',
+                    'employment_details',
+                    'employees'
+                ]
+                
+                for table in tables:
+                    cursor.execute(f"DELETE FROM {table} WHERE employee_id = ?", (employee_id,))
+                
+                # Commit the transaction
+                cursor.execute("COMMIT")
+                self.employee_deleted.emit(employee_id)
+                return True, None
+                
+            except Exception as e:
+                # If any error occurs, rollback the transaction
+                cursor.execute("ROLLBACK")
+                raise e
             
         except Exception as e:
             return False, str(e)
@@ -117,12 +309,27 @@ class EmployeeController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            cursor.execute("SELECT * FROM employees WHERE id = ?", (employee_id,))
-            employee = cursor.fetchone()
+            query = """
+                SELECT e.*, ed.*
+                FROM employees e
+                LEFT JOIN employment_details ed ON e.id = ed.employee_id
+                WHERE e.id = ?
+            """
             
-            if employee:
+            cursor.execute(query, (employee_id,))
+            row = cursor.fetchone()
+            
+            if row:
                 columns = [description[0] for description in cursor.description]
-                employee_dict = dict(zip(columns, employee))
+                employee_dict = dict(zip(columns, row))
+                
+                # Convert photo data to QPixmap if exists
+                if employee_dict.get('photo_data') and employee_dict.get('photo_mime_type'):
+                    employee_dict['photo_pixmap'] = self._pixmap_from_data(
+                        employee_dict['photo_data'],
+                        employee_dict['photo_mime_type']
+                    )
+                
                 return True, employee_dict
             return False, "Employee not found"
             
@@ -138,14 +345,53 @@ class EmployeeController(QObject):
             cursor = conn.cursor()
             
             query = """
-                SELECT e.*, s.base_salary as basic_salary, s.total_salary
+                SELECT e.id, e.name, e.name_ar, e.dob, e.gender,
+                       e.nationality, e.phone_primary, e.email,
+                       e.photo_data, e.photo_mime_type,
+                       ed.basic_salary, ed.salary_currency,
+                       ed.salary_type, ed.contract_type,
+                       ed.employee_status, ed.bank_account,
+                       d.name as department_name,
+                       p.title as position_title,
+                       ed.hire_date
                 FROM employees e
-                LEFT JOIN salaries s ON e.id = s.employee_id
+                LEFT JOIN employment_details ed ON e.id = ed.employee_id
+                LEFT JOIN departments d ON ed.department_id = d.id
+                LEFT JOIN positions p ON ed.position_id = p.id
+                ORDER BY e.id DESC
             """
             
             cursor.execute(query)
             columns = [col[0] for col in cursor.description]
-            employees = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            employees = []
+            
+            for row in cursor.fetchall():
+                employee = dict(zip(columns, row))
+                
+                # Convert photo data to QPixmap if exists
+                if employee.get('photo_data') and employee.get('photo_mime_type'):
+                    employee['photo_pixmap'] = self._pixmap_from_data(
+                        employee['photo_data'],
+                        employee['photo_mime_type']
+                    )
+                
+                # Add default values for missing fields
+                if employee['basic_salary'] is None:
+                    employee['basic_salary'] = 0
+                if employee['salary_currency'] is None:
+                    employee['salary_currency'] = 'SAR'
+                if employee['salary_type'] is None:
+                    employee['salary_type'] = 'شهري'
+                if employee['contract_type'] is None:
+                    employee['contract_type'] = 'دوام كامل'
+                if employee['employee_status'] is None:
+                    employee['employee_status'] = 'نشط'
+                if employee['department_name'] is None:
+                    employee['department_name'] = 'الإدارة العامة'
+                if employee['position_title'] is None:
+                    employee['position_title'] = 'موظف'
+                
+                employees.append(employee)
             
             return True, employees
             

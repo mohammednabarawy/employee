@@ -191,29 +191,35 @@ class ReportsForm(QWidget):
         employee_list.table.setRowCount(len(employees))
         
         for i, emp in enumerate(employees):
-            employee_list.table.setItem(i, 0, QTableWidgetItem(emp['name']))
-            employee_list.table.setItem(i, 1, QTableWidgetItem(emp['department']))
-            employee_list.table.setItem(i, 2, QTableWidgetItem(emp['position']))
-            employee_list.table.setItem(i, 3, QTableWidgetItem(emp['hire_date']))
+            employee_list.table.setItem(i, 0, QTableWidgetItem(emp.get('name', '')))
+            employee_list.table.setItem(i, 1, QTableWidgetItem(emp.get('department_name', 'الإدارة العامة')))
+            employee_list.table.setItem(i, 2, QTableWidgetItem(emp.get('position_title', 'موظف')))
+            employee_list.table.setItem(i, 3, QTableWidgetItem(emp.get('hire_date', '')))
             employee_list.table.setItem(i, 4, QTableWidgetItem(f"{float(emp.get('basic_salary', 0) or 0):,.2f}"))
-            employee_list.table.setItem(i, 5, QTableWidgetItem(emp.get('status', '')))
+            employee_list.table.setItem(i, 5, QTableWidgetItem(emp.get('employee_status', 'نشط')))
         
         self.reports_layout.addWidget(employee_list)
         
-        # Department Distribution
-        dept_chart = ChartReport("توزيع الموظفين حسب الأقسام")
-        series = QPieSeries()
+        # Department Statistics Table instead of Chart
+        headers = ["القسم", "عدد الموظفين", "النسبة المئوية"]
+        dept_stats = TableReport("إحصائيات الأقسام", headers)
         
         dept_counts = {}
+        total_employees = len(employees)
+        
         for emp in employees:
-            dept = emp['department']
+            dept = emp.get('department_name', 'الإدارة العامة')
             dept_counts[dept] = dept_counts.get(dept, 0) + 1
         
-        for dept, count in dept_counts.items():
-            series.append(dept, count)
+        dept_stats.table.setRowCount(len(dept_counts))
         
-        dept_chart.chart.addSeries(series)
-        self.reports_layout.addWidget(dept_chart)
+        for i, (dept, count) in enumerate(dept_counts.items()):
+            percentage = (count / total_employees * 100) if total_employees > 0 else 0
+            dept_stats.table.setItem(i, 0, QTableWidgetItem(dept))
+            dept_stats.table.setItem(i, 1, QTableWidgetItem(str(count)))
+            dept_stats.table.setItem(i, 2, QTableWidgetItem(f"{percentage:.1f}%"))
+        
+        self.reports_layout.addWidget(dept_stats)
     
     def generate_salary_report(self):
         # Salary Summary
