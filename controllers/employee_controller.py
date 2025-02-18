@@ -173,10 +173,9 @@ class EmployeeController(QObject):
                         name = ?, name_ar = ?, dob = ?, gender = ?,
                         nationality = ?, national_id = ?, passport_number = ?,
                         phone_primary = ?, phone_secondary = ?, email = ?,
-                        address = ?, city = ?, country = ?,
-                        emergency_contact_name = ?, emergency_contact_phone = ?,
-                        emergency_contact_relation = ?, photo_data = ?, photo_mime_type = ?,
-                        updated_by = ?
+                        address = ?, photo_data = COALESCE(?, photo_data),
+                        photo_mime_type = COALESCE(?, photo_mime_type),
+                        updated_by = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """
                 
@@ -192,11 +191,6 @@ class EmployeeController(QObject):
                     employee_data.get('phone_secondary'),
                     employee_data.get('email'),
                     employee_data.get('address'),
-                    employee_data.get('city'),
-                    employee_data.get('country'),
-                    employee_data.get('emergency_contact_name'),
-                    employee_data.get('emergency_contact_phone'),
-                    employee_data.get('emergency_contact_relation'),
                     photo_data,
                     photo_mime_type,
                     admin_id,  # updated_by
@@ -346,8 +340,9 @@ class EmployeeController(QObject):
             
             query = """
                 SELECT e.id, e.name, e.name_ar, e.dob, e.gender,
-                       e.nationality, e.phone_primary, e.email,
-                       e.photo_data, e.photo_mime_type,
+                       e.nationality, e.national_id, e.passport_number,
+                       e.phone_primary, e.phone_secondary, e.email,
+                       e.address, e.photo_data, e.photo_mime_type,
                        ed.basic_salary, ed.salary_currency,
                        ed.salary_type, ed.contract_type,
                        ed.employee_status, ed.bank_account,
@@ -379,7 +374,7 @@ class EmployeeController(QObject):
                 if employee['basic_salary'] is None:
                     employee['basic_salary'] = 0
                 if employee['salary_currency'] is None:
-                    employee['salary_currency'] = 'SAR'
+                    employee['salary_currency'] = 'ريال سعودي'
                 if employee['salary_type'] is None:
                     employee['salary_type'] = 'شهري'
                 if employee['contract_type'] is None:
@@ -390,6 +385,10 @@ class EmployeeController(QObject):
                     employee['department_name'] = 'الإدارة العامة'
                 if employee['position_title'] is None:
                     employee['position_title'] = 'موظف'
+                if employee['national_id'] is None:
+                    employee['national_id'] = ''
+                if employee['passport_number'] is None:
+                    employee['passport_number'] = ''
                 
                 employees.append(employee)
             

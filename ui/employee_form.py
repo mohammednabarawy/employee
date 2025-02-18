@@ -553,6 +553,7 @@ class EmployeeForm(QDialog):
         self.phone2_edit.setText(employee_data.get('phone_secondary', ''))
         self.national_id_edit.setText(employee_data.get('national_id', ''))
         self.passport_edit.setText(employee_data.get('passport_number', ''))
+        self.address_edit.setPlainText(employee_data.get('address', ''))
         
         # Load photo if available
         if 'photo_pixmap' in employee_data:
@@ -567,63 +568,70 @@ class EmployeeForm(QDialog):
         else:
             self.clear_photo()
         
-        # Load dates
+        # Load dates with proper default values
         if employee_data.get('dob'):
             self.dob_edit.setDate(QDate.fromString(employee_data['dob'], 'yyyy-MM-dd'))
+        else:
+            self.dob_edit.setDate(QDate.currentDate())
+            
         if employee_data.get('hire_date'):
             self.hire_date_edit.setDate(QDate.fromString(employee_data['hire_date'], 'yyyy-MM-dd'))
+        else:
+            self.hire_date_edit.setDate(QDate.currentDate())
         
-        # Load combo box selections
-        if employee_data.get('gender'):
-            index = self.gender_combo.findText(employee_data['gender'])
-            if index >= 0:
-                self.gender_combo.setCurrentIndex(index)
-                
-        if employee_data.get('nationality'):
-            index = self.nationality_edit.findText(employee_data['nationality'])
-            if index >= 0:
-                self.nationality_edit.setCurrentIndex(index)
-            else:
-                self.nationality_edit.setCurrentText(employee_data['nationality'])
-                
-        if employee_data.get('department_name'):
-            index = self.department_combo.findText(employee_data['department_name'])
-            if index >= 0:
-                self.department_combo.setCurrentIndex(index)
-            else:
-                self.department_combo.setCurrentText(employee_data['department_name'])
-                
-        if employee_data.get('position_title'):
-            index = self.position_combo.findText(employee_data['position_title'])
-            if index >= 0:
-                self.position_combo.setCurrentIndex(index)
-            else:
-                self.position_combo.setCurrentText(employee_data['position_title'])
-                
-        if employee_data.get('contract_type'):
-            index = self.contract_type_combo.findText(employee_data['contract_type'])
-            if index >= 0:
-                self.contract_type_combo.setCurrentIndex(index)
-                
-        if employee_data.get('salary_type'):
-            index = self.salary_type_combo.findText(employee_data['salary_type'])
-            if index >= 0:
-                self.salary_type_combo.setCurrentIndex(index)
-                
-        if employee_data.get('salary_currency'):
-            index = self.currency_combo.findText(employee_data['salary_currency'])
-            if index >= 0:
-                self.currency_combo.setCurrentIndex(index)
-        
-        # Load address
-        self.address_edit.setPlainText(employee_data.get('address', ''))
-        
-        # Load salary
+        # Load combo box selections with proper defaults
+        # Gender
+        gender = employee_data.get('gender', 'ذكر')
+        index = self.gender_combo.findText(gender)
+        if index >= 0:
+            self.gender_combo.setCurrentIndex(index)
+            
+        # Nationality
+        nationality = employee_data.get('nationality', 'سعودي')
+        index = self.nationality_edit.findText(nationality)
+        if index >= 0:
+            self.nationality_edit.setCurrentIndex(index)
+        else:
+            self.nationality_edit.setCurrentText(nationality)
+            
+        # Department
+        department = employee_data.get('department_name', 'الإدارة العامة')
+        index = self.department_combo.findText(department)
+        if index >= 0:
+            self.department_combo.setCurrentIndex(index)
+        else:
+            self.department_combo.setCurrentText(department)
+            
+        # Position
+        position = employee_data.get('position_title', 'موظف')
+        index = self.position_combo.findText(position)
+        if index >= 0:
+            self.position_combo.setCurrentIndex(index)
+        else:
+            self.position_combo.setCurrentText(position)
+            
+        # Contract Type
+        contract = employee_data.get('contract_type', 'دوام كامل')
+        index = self.contract_type_combo.findText(contract)
+        if index >= 0:
+            self.contract_type_combo.setCurrentIndex(index)
+            
+        # Salary Type
+        salary_type = employee_data.get('salary_type', 'شهري')
+        index = self.salary_type_combo.findText(salary_type)
+        if index >= 0:
+            self.salary_type_combo.setCurrentIndex(index)
+            
+        # Currency
+        currency = employee_data.get('salary_currency', 'ريال سعودي')
+        index = self.currency_combo.findText(currency)
+        if index >= 0:
+            self.currency_combo.setCurrentIndex(index)
+            
+        # Bank Account and Salary
+        self.bank_account_edit.setText(employee_data.get('bank_account', ''))
         self.basic_salary_spin.setValue(float(employee_data.get('basic_salary', 0) or 0))
         
-        # Load bank account
-        self.bank_account_edit.setText(employee_data.get('bank_account', ''))
-
     def clear_photo(self):
         self.photo_label.clear()
         self.photo_path = None
