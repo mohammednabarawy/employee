@@ -339,57 +339,85 @@ class EmployeeController(QObject):
             cursor = conn.cursor()
             
             query = """
-                SELECT e.id, e.name, e.name_ar, e.dob, e.gender,
-                       e.nationality, e.national_id, e.passport_number,
-                       e.phone_primary, e.phone_secondary, e.email,
-                       e.address, e.photo_data, e.photo_mime_type,
-                       ed.basic_salary, ed.salary_currency,
-                       ed.salary_type, ed.contract_type,
-                       ed.employee_status, ed.bank_account,
-                       d.name as department_name,
-                       p.title as position_title,
-                       ed.hire_date
+                SELECT 
+                    e.id,
+                    e.code,
+                    e.name,
+                    e.name_ar,
+                    e.department_id,
+                    d.name as department_name,
+                    e.position_id,
+                    p.name as position_name,
+                    e.basic_salary,
+                    e.hire_date,
+                    e.birth_date,
+                    e.gender,
+                    e.marital_status,
+                    e.national_id,
+                    e.phone,
+                    e.email,
+                    e.address,
+                    e.bank_account,
+                    e.bank_name,
+                    e.is_active
                 FROM employees e
-                LEFT JOIN employment_details ed ON e.id = ed.employee_id
-                LEFT JOIN departments d ON ed.department_id = d.id
-                LEFT JOIN positions p ON ed.position_id = p.id
-                ORDER BY e.id DESC
+                LEFT JOIN departments d ON e.department_id = d.id
+                LEFT JOIN positions p ON e.position_id = p.id
+                ORDER BY e.name
             """
             
             cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            employees = []
             
+            columns = [column[0] for column in cursor.description]
+            employees = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            return True, employees
+            
+        except Exception as e:
+            print(f"Error in get_all_employees: {str(e)}")
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def get_active_employees(self):
+        """Get all active employees"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    e.id,
+                    e.name,
+                    e.code,
+                    e.department_id,
+                    d.name as department_name,
+                    e.position_id,
+                    p.name as position_name,
+                    e.basic_salary,
+                    e.hire_date,
+                    e.is_active
+                FROM employees e
+                LEFT JOIN departments d ON e.department_id = d.id
+                LEFT JOIN positions p ON e.position_id = p.id
+                WHERE e.is_active = 1
+                ORDER BY e.name
+            """)
+            
+            employees = []
             for row in cursor.fetchall():
-                employee = dict(zip(columns, row))
-                
-                # Convert photo data to QPixmap if exists
-                if employee.get('photo_data') and employee.get('photo_mime_type'):
-                    employee['photo_pixmap'] = self._pixmap_from_data(
-                        employee['photo_data'],
-                        employee['photo_mime_type']
-                    )
-                
-                # Add default values for missing fields
-                if employee['basic_salary'] is None:
-                    employee['basic_salary'] = 0
-                if employee['salary_currency'] is None:
-                    employee['salary_currency'] = 'ريال سعودي'
-                if employee['salary_type'] is None:
-                    employee['salary_type'] = 'شهري'
-                if employee['contract_type'] is None:
-                    employee['contract_type'] = 'دوام كامل'
-                if employee['employee_status'] is None:
-                    employee['employee_status'] = 'نشط'
-                if employee['department_name'] is None:
-                    employee['department_name'] = 'الإدارة العامة'
-                if employee['position_title'] is None:
-                    employee['position_title'] = 'موظف'
-                if employee['national_id'] is None:
-                    employee['national_id'] = ''
-                if employee['passport_number'] is None:
-                    employee['passport_number'] = ''
-                
+                employee = {
+                    'id': row[0],
+                    'name': row[1],
+                    'code': row[2],
+                    'department_id': row[3],
+                    'department_name': row[4],
+                    'position_id': row[5],
+                    'position_name': row[6],
+                    'basic_salary': row[7],
+                    'hire_date': row[8],
+                    'is_active': row[9]
+                }
                 employees.append(employee)
             
             return True, employees
@@ -485,6 +513,64 @@ class EmployeeController(QObject):
             employee_list = [dict(zip(columns, employee)) for employee in employees]
             
             return True, employee_list
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def fix_employee_statuses(self):
+        """Fix employee statuses to use Arabic status values"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Update any 'Active' statuses to 'نشط'
+            cursor.execute("""
+                UPDATE employment_details 
+                SET employee_status = 'نشط'
+                WHERE employee_status = 'Active'
+            """)
+            
+            conn.commit()
+            return True, None
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def get_departments(self):
+        """Get all departments"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    d.id,
+                    d.name,
+                    d.code,
+                    d.manager_id,
+                    e.name as manager_name
+                FROM departments d
+                LEFT JOIN employees e ON d.manager_id = e.id
+                WHERE d.is_active = 1
+                ORDER BY d.name
+            """)
+            
+            departments = []
+            for row in cursor.fetchall():
+                department = {
+                    'id': row[0],
+                    'name': row[1],
+                    'code': row[2],
+                    'manager_id': row[3],
+                    'manager_name': row[4]
+                }
+                departments.append(department)
+            
+            return True, departments
             
         except Exception as e:
             return False, str(e)

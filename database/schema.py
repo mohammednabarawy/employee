@@ -1,13 +1,14 @@
-CREATE_TABLES_SQL = {
+from .payroll_schema import PAYROLL_TABLES_SQL
+
+SCHEMA = {
     'users': '''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             email TEXT UNIQUE,
-            role TEXT NOT NULL,
-            is_active BOOLEAN DEFAULT 1,
-            last_login TIMESTAMP,
+            is_active INTEGER DEFAULT 1,
+            role TEXT DEFAULT 'user',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''',
@@ -15,32 +16,73 @@ CREATE_TABLES_SQL = {
     'employees': '''
         CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_code TEXT UNIQUE,
+            code TEXT UNIQUE NOT NULL,
             name TEXT NOT NULL,
             name_ar TEXT,
-            dob DATE NOT NULL,
-            gender TEXT NOT NULL,
+            department_id INTEGER,
+            position_id INTEGER,
+            basic_salary DECIMAL(10,2) NOT NULL DEFAULT 0,
+            hire_date DATE NOT NULL,
+            birth_date DATE,
+            gender TEXT CHECK(gender IN ('male', 'female')),
             marital_status TEXT,
-            nationality TEXT,
             national_id TEXT UNIQUE,
-            passport_number TEXT,
-            phone_primary TEXT NOT NULL,
-            phone_secondary TEXT,
-            email TEXT UNIQUE,
+            phone TEXT,
+            email TEXT,
             address TEXT,
-            city TEXT,
-            country TEXT,
-            emergency_contact_name TEXT,
-            emergency_contact_phone TEXT,
-            emergency_contact_relation TEXT,
-            photo_data BLOB,
-            photo_mime_type TEXT,
+            bank_account TEXT,
+            bank_name TEXT,
+            is_active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER,
-            updated_by INTEGER,
-            FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL,
-            FOREIGN KEY (updated_by) REFERENCES users (id) ON DELETE SET NULL
+            FOREIGN KEY (department_id) REFERENCES departments (id),
+            FOREIGN KEY (position_id) REFERENCES positions (id)
+        )
+    ''',
+    
+    'departments': '''
+        CREATE TABLE IF NOT EXISTS departments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            name_ar TEXT,
+            manager_id INTEGER,
+            parent_id INTEGER,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (manager_id) REFERENCES employees (id),
+            FOREIGN KEY (parent_id) REFERENCES departments (id)
+        )
+    ''',
+    
+    'positions': '''
+        CREATE TABLE IF NOT EXISTS positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            name_ar TEXT,
+            department_id INTEGER,
+            grade INTEGER,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (department_id) REFERENCES departments (id)
+        )
+    ''',
+    
+    'salary_components': '''
+        CREATE TABLE IF NOT EXISTS salary_components (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            name_ar TEXT,
+            type TEXT CHECK(type IN ('allowance', 'deduction')) NOT NULL,
+            is_percentage INTEGER DEFAULT 0,
+            percentage DECIMAL(5,2),
+            value DECIMAL(10,2),
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''',
     
@@ -54,7 +96,7 @@ CREATE_TABLES_SQL = {
             contract_type TEXT NOT NULL,
             contract_end_date DATE,
             probation_end_date DATE,
-            employee_status TEXT NOT NULL DEFAULT 'Active',
+            employee_status TEXT NOT NULL DEFAULT 'نشط',
             work_location TEXT,
             manager_id INTEGER,
             basic_salary DECIMAL(10,2) NOT NULL,
@@ -75,35 +117,18 @@ CREATE_TABLES_SQL = {
         )
     ''',
     
-    'departments': '''
-        CREATE TABLE IF NOT EXISTS departments (
+    'employee_allowances': '''
+        CREATE TABLE IF NOT EXISTS employee_allowances (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            name_ar TEXT,
-            code TEXT UNIQUE,
-            parent_id INTEGER,
-            manager_id INTEGER,
-            description TEXT,
-            active BOOLEAN DEFAULT 1,
+            employee_id INTEGER NOT NULL,
+            allowance_type TEXT NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'SAR',
+            effective_date DATE,
+            end_date DATE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_id) REFERENCES departments (id),
-            FOREIGN KEY (manager_id) REFERENCES employees (id)
-        )
-    ''',
-    
-    'positions': '''
-        CREATE TABLE IF NOT EXISTS positions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            title_ar TEXT,
-            code TEXT UNIQUE,
-            department_id INTEGER,
-            description TEXT,
-            min_salary DECIMAL(10,2),
-            max_salary DECIMAL(10,2),
-            active BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (department_id) REFERENCES departments (id)
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees (id)
         )
     ''',
     
@@ -141,67 +166,18 @@ CREATE_TABLES_SQL = {
         )
     ''',
     
-    'salary_components': '''
-        CREATE TABLE IF NOT EXISTS salary_components (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            name_ar TEXT,
-            type TEXT NOT NULL,
-            calculation_type TEXT NOT NULL,
-            calculation_value DECIMAL(10,2),
-            taxable BOOLEAN DEFAULT 0,
-            description TEXT,
-            active BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''',
-    
     'employee_salary_components': '''
         CREATE TABLE IF NOT EXISTS employee_salary_components (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id INTEGER NOT NULL,
             component_id INTEGER NOT NULL,
-            amount DECIMAL(10,2) NOT NULL,
-            effective_date DATE NOT NULL,
+            value DECIMAL(10,2),
+            is_active INTEGER DEFAULT 1,
+            effective_date DATE,
             end_date DATE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (employee_id) REFERENCES employees (id),
-            FOREIGN KEY (component_id) REFERENCES salary_components (id)
-        )
-    ''',
-    
-    'payroll': '''
-        CREATE TABLE IF NOT EXISTS payroll (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_id INTEGER NOT NULL,
-            period_month INTEGER NOT NULL,
-            period_year INTEGER NOT NULL,
-            basic_salary DECIMAL(10,2) NOT NULL,
-            gross_salary DECIMAL(10,2) NOT NULL,
-            total_deductions DECIMAL(10,2) NOT NULL,
-            net_salary DECIMAL(10,2) NOT NULL,
-            currency TEXT NOT NULL DEFAULT 'USD',
-            status TEXT NOT NULL DEFAULT 'Draft',
-            payment_method TEXT,
-            payment_reference TEXT,
-            paid_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER,
-            FOREIGN KEY (employee_id) REFERENCES employees (id),
-            FOREIGN KEY (created_by) REFERENCES users (id)
-        )
-    ''',
-    
-    'payroll_details': '''
-        CREATE TABLE IF NOT EXISTS payroll_details (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            payroll_id INTEGER NOT NULL,
-            component_id INTEGER NOT NULL,
-            amount DECIMAL(10,2) NOT NULL,
-            type TEXT NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (payroll_id) REFERENCES payroll (id),
             FOREIGN KEY (component_id) REFERENCES salary_components (id)
         )
     ''',
@@ -247,14 +223,14 @@ CREATE_TABLES_SQL = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id INTEGER NOT NULL,
             document_type TEXT NOT NULL,
-            title TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            expiry_date DATE,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER,
+            file_name TEXT NOT NULL,
+            file_data BLOB,
+            mime_type TEXT,
+            description TEXT,
+            upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            uploaded_by INTEGER,
             FOREIGN KEY (employee_id) REFERENCES employees (id),
-            FOREIGN KEY (created_by) REFERENCES users (id)
+            FOREIGN KEY (uploaded_by) REFERENCES users (id)
         )
     ''',
     
@@ -285,3 +261,5 @@ CREATE_TABLES_SQL = {
         )
     '''
 }
+
+SCHEMA.update(PAYROLL_TABLES_SQL)

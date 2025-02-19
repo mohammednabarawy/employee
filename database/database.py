@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 import os
-from .schema import CREATE_TABLES_SQL
+from .schema import SCHEMA
 import hashlib
 
 class Database:
@@ -21,25 +21,8 @@ class Database:
             cursor = conn.cursor()
             
             # Create tables in the correct order to respect foreign key constraints
-            table_order = [
-                'users',  # Create users first since employees references it
-                'employees',
-                'departments',
-                'positions',
-                'employment_details',
-                'attendance',
-                'leaves',
-                'salary_components',
-                'employee_salary_components',
-                'payroll',
-                'payroll_details',
-                'loans',
-                'audit_log'
-            ]
-            
-            for table in table_order:
-                if table in CREATE_TABLES_SQL:
-                    cursor.execute(CREATE_TABLES_SQL[table])
+            for table_name, create_sql in SCHEMA.items():
+                cursor.execute(create_sql)
             
             # Insert default data
             self.insert_default_data(cursor)
