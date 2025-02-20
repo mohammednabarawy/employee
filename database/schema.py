@@ -21,7 +21,7 @@ SCHEMA = {
             name_ar TEXT,
             department_id INTEGER,
             position_id INTEGER,
-            basic_salary DECIMAL(10,2) NOT NULL DEFAULT 0,
+            basic_salary REAL DEFAULT 0,
             hire_date DATE NOT NULL,
             birth_date DATE,
             gender TEXT CHECK(gender IN ('male', 'female')),
@@ -75,14 +75,33 @@ SCHEMA = {
         CREATE TABLE IF NOT EXISTS salary_components (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            name_ar TEXT,
+            name_ar TEXT NOT NULL,
             type TEXT CHECK(type IN ('allowance', 'deduction')) NOT NULL,
+            is_taxable INTEGER DEFAULT 0,
             is_percentage INTEGER DEFAULT 0,
-            percentage DECIMAL(5,2),
-            value DECIMAL(10,2),
+            value REAL,
+            percentage REAL,
+            description TEXT,
             is_active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
+    'employee_salary_components': '''
+        CREATE TABLE IF NOT EXISTS employee_salary_components (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            component_id INTEGER NOT NULL,
+            value REAL,
+            percentage REAL,
+            start_date DATE NOT NULL,
+            end_date DATE,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees (id),
+            FOREIGN KEY (component_id) REFERENCES salary_components (id)
         )
     ''',
     
@@ -99,7 +118,6 @@ SCHEMA = {
             employee_status TEXT NOT NULL DEFAULT 'نشط',
             work_location TEXT,
             manager_id INTEGER,
-            basic_salary DECIMAL(10,2) NOT NULL,
             salary_currency TEXT NOT NULL DEFAULT 'USD',
             salary_type TEXT NOT NULL,
             working_hours DECIMAL(5,2),
@@ -163,22 +181,6 @@ SCHEMA = {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (employee_id) REFERENCES employees (id),
             FOREIGN KEY (approved_by) REFERENCES users (id)
-        )
-    ''',
-    
-    'employee_salary_components': '''
-        CREATE TABLE IF NOT EXISTS employee_salary_components (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_id INTEGER NOT NULL,
-            component_id INTEGER NOT NULL,
-            value DECIMAL(10,2),
-            is_active INTEGER DEFAULT 1,
-            effective_date DATE,
-            end_date DATE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (employee_id) REFERENCES employees (id),
-            FOREIGN KEY (component_id) REFERENCES salary_components (id)
         )
     ''',
     

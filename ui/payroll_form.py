@@ -2,9 +2,12 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QComboBox, QTableWidget, QTableWidgetItem,
                              QMessageBox, QCalendarWidget, QDialog, QCheckBox, 
                              QDoubleSpinBox, QFormLayout, QDialogButtonBox, 
-                             QTextEdit, QMenu, QLineEdit)
+                             QTextEdit, QMenu, QLineEdit, QFrame)
 from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtGui import QIcon
+import qtawesome as qta
 from datetime import datetime
+from ui.styles import Styles
 
 class AddEmployeeDialog(QDialog):
     def __init__(self, employee_controller, parent=None):
@@ -16,6 +19,9 @@ class AddEmployeeDialog(QDialog):
         
     def init_ui(self):
         self.setWindowTitle("إضافة موظفين")
+        self.setMinimumWidth(800)
+        self.setStyleSheet(Styles.LIGHT_THEME)
+        
         layout = QVBoxLayout()
         self.setLayout(layout)
         
@@ -25,41 +31,65 @@ class AddEmployeeDialog(QDialog):
         self.employee_list.setHorizontalHeaderLabels([
             "تحديد", "الرقم", "الاسم", "القسم", "الراتب الأساسي"
         ])
+        self.employee_list.setAlternatingRowColors(True)
         layout.addWidget(self.employee_list)
         
-        # Add search box
-        search_layout = QHBoxLayout()
-        search_label = QLabel("بحث:")
-        self.search_box = QLineEdit()
-        search_layout.addWidget(search_label)
-        search_layout.addWidget(self.search_box)
-        layout.addLayout(search_layout)
+        # Create search and filter frame
+        filter_frame = QFrame()
+        filter_frame.setObjectName("filterFrame")
+        filter_layout = QHBoxLayout(filter_frame)
         
-        # Add department filter
-        filter_layout = QHBoxLayout()
-        dept_label = QLabel("القسم:")
+        # Add search box with icon
+        search_layout = QHBoxLayout()
+        search_icon = QLabel()
+        search_icon.setPixmap(qta.icon('fa5s.search', color='#3498db').pixmap(16, 16))
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("بحث عن موظف...")
+        search_layout.addWidget(search_icon)
+        search_layout.addWidget(self.search_box)
+        filter_layout.addLayout(search_layout)
+        
+        # Add department filter with icon
+        dept_layout = QHBoxLayout()
+        dept_icon = QLabel()
+        dept_icon.setPixmap(qta.icon('fa5s.building', color='#3498db').pixmap(16, 16))
         self.dept_combo = QComboBox()
         
         # Get departments
         success, departments = self.employee_controller.get_departments()
         if success:
-            self.dept_combo.addItem("الكل", None)
+            self.dept_combo.addItem("كل الأقسام", None)
             for dept in departments:
                 self.dept_combo.addItem(dept['name'], dept['id'])
                 
-        filter_layout.addWidget(dept_label)
-        filter_layout.addWidget(self.dept_combo)
-        layout.addLayout(filter_layout)
+        dept_layout.addWidget(dept_icon)
+        dept_layout.addWidget(self.dept_combo)
+        filter_layout.addLayout(dept_layout)
         
-        # Add select all checkbox
+        layout.addWidget(filter_frame)
+        
+        # Add select all checkbox with icon
+        select_all_layout = QHBoxLayout()
+        select_icon = QLabel()
+        select_icon.setPixmap(qta.icon('fa5s.check-square', color='#3498db').pixmap(16, 16))
         self.select_all = QCheckBox("تحديد الكل")
-        self.select_all.stateChanged.connect(self.toggle_all)
-        layout.addWidget(self.select_all)
+        select_all_layout.addWidget(select_icon)
+        select_all_layout.addWidget(self.select_all)
+        layout.addLayout(select_all_layout)
         
         # Add buttons
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
+        button_box = QDialogButtonBox()
+        ok_button = button_box.addButton(QDialogButtonBox.Ok)
+        cancel_button = button_box.addButton(QDialogButtonBox.Cancel)
+        
+        # Add icons to buttons
+        ok_button.setIcon(qta.icon('fa5s.check', color='white'))
+        cancel_button.setIcon(qta.icon('fa5s.times', color='white'))
+        
+        # Set button text
+        ok_button.setText("موافق")
+        cancel_button.setText("إلغاء")
+        
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -70,6 +100,7 @@ class AddEmployeeDialog(QDialog):
         # Connect signals after everything is set up
         self.search_box.textChanged.connect(self.filter_employees)
         self.dept_combo.currentIndexChanged.connect(self.filter_employees)
+        self.select_all.stateChanged.connect(self.toggle_all)
         
     def load_employees(self):
         success, employees = self.employee_controller.get_active_employees()
@@ -107,11 +138,23 @@ class AddEmployeeDialog(QDialog):
             checkbox.setCheckState(Qt.Unchecked)
             self.employee_list.setItem(i, 0, checkbox)
             
-            # Add employee info
-            self.employee_list.setItem(i, 1, QTableWidgetItem(str(emp['id'])))
-            self.employee_list.setItem(i, 2, QTableWidgetItem(emp['name']))
-            self.employee_list.setItem(i, 3, QTableWidgetItem(emp.get('department_name', '')))
-            self.employee_list.setItem(i, 4, QTableWidgetItem(f"{float(emp['basic_salary']):,.2f}"))
+            # Add employee info with icons
+            id_item = QTableWidgetItem(str(emp['id']))
+            id_item.setIcon(qta.icon('fa5s.id-badge', color='#3498db'))
+            
+            name_item = QTableWidgetItem(emp['name'])
+            name_item.setIcon(qta.icon('fa5s.user', color='#3498db'))
+            
+            dept_item = QTableWidgetItem(emp.get('department_name', ''))
+            dept_item.setIcon(qta.icon('fa5s.building', color='#3498db'))
+            
+            salary_item = QTableWidgetItem(f"{float(emp['basic_salary']):,.2f}")
+            salary_item.setIcon(qta.icon('fa5s.money-bill', color='#3498db'))
+            
+            self.employee_list.setItem(i, 1, id_item)
+            self.employee_list.setItem(i, 2, name_item)
+            self.employee_list.setItem(i, 3, dept_item)
+            self.employee_list.setItem(i, 4, salary_item)
             
         self.employee_list.resizeColumnsToContents()
         

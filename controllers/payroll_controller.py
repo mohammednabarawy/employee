@@ -673,26 +673,384 @@ class PayrollController(QObject):
         finally:
             conn.close()
 
-    def get_salary_components(self, component_type):
-        """Get salary components of a specific type (allowance/deduction)"""
+    def get_salary_components(self, component_type=None):
+        """Get all salary components or filter by type"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT id, name, name_ar, type, is_taxable,
+                       is_percentage, value, percentage,
+                       description, is_active
+                FROM salary_components
+                WHERE is_active = 1
+            """
+            
+            params = []
+            if component_type:
+                query += " AND type = ?"
+                params.append(component_type)
+                
+            query += " ORDER BY type, name_ar"
+            
+            cursor.execute(query, params)
+            
+            columns = [column[0] for column in cursor.description]
+            components = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            return True, components
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def add_salary_component(self, data):
+        """Add a new salary component"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
             cursor.execute("""
-                SELECT * FROM salary_components
-                WHERE type = ?
-                ORDER BY name_ar
-            """, (component_type,))
+                INSERT INTO salary_components (
+                    name, name_ar, type, is_taxable,
+                    is_percentage, value, percentage,
+                    description, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """, (
+                data['name'], data['name_ar'], data['type'],
+                data['is_taxable'], data['is_percentage'],
+                None if data['is_percentage'] else data['value'],
+                data['value'] if data['is_percentage'] else None,
+                data.get('description', '')
+            ))
             
-            columns = [description[0] for description in cursor.description]
+            conn.commit()
+            return True, cursor.lastrowid
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def update_salary_component(self, component_id, data):
+        """Update an existing salary component"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE salary_components SET
+                    name = ?, name_ar = ?, type = ?,
+                    is_taxable = ?, is_percentage = ?,
+                    value = ?, percentage = ?,
+                    description = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (
+                data['name'], data['name_ar'], data['type'],
+                data['is_taxable'], data['is_percentage'],
+                None if data['is_percentage'] else data['value'],
+                data['value'] if data['is_percentage'] else None,
+                data.get('description', ''), component_id
+            ))
+            
+            conn.commit()
+            return True, None
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def delete_salary_component(self, component_id):
+        """Soft delete a salary component"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Check if component is in use
+            cursor.execute("""
+                SELECT COUNT(*) FROM employee_salary_components
+                WHERE component_id = ? AND is_active = 1
+            """, (component_id,))
+            
+            if cursor.fetchone()[0] > 0:
+                return False, "لا يمكن حذف هذا العنصر لأنه مستخدم في رواتب الموظفين"
+            
+            cursor.execute("""
+                UPDATE salary_components SET
+                    is_active = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (component_id,))
+            
+            conn.commit()
+            return True, None
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def get_employee_salary(self, employee_id):
+        """Get employee's basic salary"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT basic_salary
+                FROM employees
+                WHERE id = ?
+            """, (employee_id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                return False, "الموظف غير موجود"
+                
+            return True, {'basic_salary': row[0] or 0}
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def update_employee_basic_salary(self, employee_id, basic_salary):
+        """Update employee's basic salary"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE employees SET
+                    basic_salary = ?
+                WHERE id = ?
+            """, (basic_salary, employee_id))
+            
+            conn.commit()
+            return True, None
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def get_employee_components(self, employee_id, component_type=None):
+        """Get all salary components for an employee"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT 
+                    esc.id, sc.name, sc.name_ar, sc.type,
+                    sc.is_taxable, sc.is_percentage,
+                    COALESCE(esc.value, sc.value) as value,
+                    COALESCE(esc.percentage, sc.percentage) as percentage,
+                    esc.start_date, esc.end_date, esc.is_active
+                FROM employee_salary_components esc
+                JOIN salary_components sc ON esc.component_id = sc.id
+                WHERE esc.employee_id = ? AND sc.is_active = 1
+            """
+            
+            params = [employee_id]
+            if component_type:
+                query += " AND sc.type = ?"
+                params.append(component_type)
+                
+            query += " ORDER BY sc.type, sc.name_ar"
+            
+            cursor.execute(query, params)
+            
+            columns = [column[0] for column in cursor.description]
             components = []
-            
             for row in cursor.fetchall():
                 component = dict(zip(columns, row))
+                component['start_date'] = datetime.strptime(
+                    component['start_date'], '%Y-%m-%d'
+                ).date()
+                if component['end_date']:
+                    component['end_date'] = datetime.strptime(
+                        component['end_date'], '%Y-%m-%d'
+                    ).date()
                 components.append(component)
             
             return True, components
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def add_employee_component(self, data):
+        """Add a salary component to an employee"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get component details
+            cursor.execute("""
+                SELECT is_percentage FROM salary_components
+                WHERE id = ?
+            """, (data['component_id'],))
+            
+            row = cursor.fetchone()
+            if not row:
+                return False, "عنصر الراتب غير موجود"
+                
+            is_percentage = row[0]
+            
+            cursor.execute("""
+                INSERT INTO employee_salary_components (
+                    employee_id, component_id,
+                    value, percentage, start_date, end_date,
+                    is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, 1)
+            """, (
+                data['employee_id'], data['component_id'],
+                None if is_percentage else data['value'],
+                data['value'] if is_percentage else None,
+                data['start_date'],
+                data.get('end_date')
+            ))
+            
+            conn.commit()
+            return True, cursor.lastrowid
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def update_employee_component(self, component_id, data):
+        """Update an employee's salary component"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get component details
+            cursor.execute("""
+                SELECT is_percentage FROM salary_components
+                WHERE id = ?
+            """, (data['component_id'],))
+            
+            row = cursor.fetchone()
+            if not row:
+                return False, "عنصر الراتب غير موجود"
+                
+            is_percentage = row[0]
+            
+            cursor.execute("""
+                UPDATE employee_salary_components SET
+                    value = ?, percentage = ?,
+                    start_date = ?, end_date = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (
+                None if is_percentage else data['value'],
+                data['value'] if is_percentage else None,
+                data['start_date'],
+                data.get('end_date'),
+                component_id
+            ))
+            
+            conn.commit()
+            return True, None
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def delete_employee_component(self, component_id):
+        """Remove a salary component from an employee"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE employee_salary_components SET
+                    is_active = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (component_id,))
+            
+            conn.commit()
+            return True, None
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+            
+    def get_employee_salary_summary(self, employee_id):
+        """Get summary of employee's salary including all components"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get basic salary
+            cursor.execute("""
+                SELECT basic_salary
+                FROM employees
+                WHERE id = ?
+            """, (employee_id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                return False, "الموظف غير موجود"
+                
+            basic_salary = row[0] or 0
+            
+            # Calculate total allowances
+            cursor.execute("""
+                SELECT SUM(
+                    CASE 
+                        WHEN sc.is_percentage = 1 
+                        THEN ? * COALESCE(esc.percentage, sc.percentage) / 100
+                        ELSE COALESCE(esc.value, sc.value)
+                    END
+                )
+                FROM employee_salary_components esc
+                JOIN salary_components sc ON esc.component_id = sc.id
+                WHERE esc.employee_id = ?
+                  AND esc.is_active = 1
+                  AND sc.type = 'allowance'
+                  AND sc.is_active = 1
+                  AND (esc.end_date IS NULL OR esc.end_date >= CURRENT_DATE)
+                  AND esc.start_date <= CURRENT_DATE
+            """, (basic_salary, employee_id))
+            
+            total_allowances = cursor.fetchone()[0] or 0
+            
+            # Calculate total deductions
+            cursor.execute("""
+                SELECT SUM(
+                    CASE 
+                        WHEN sc.is_percentage = 1 
+                        THEN ? * COALESCE(esc.percentage, sc.percentage) / 100
+                        ELSE COALESCE(esc.value, sc.value)
+                    END
+                )
+                FROM employee_salary_components esc
+                JOIN salary_components sc ON esc.component_id = sc.id
+                WHERE esc.employee_id = ?
+                  AND esc.is_active = 1
+                  AND sc.type = 'deduction'
+                  AND sc.is_active = 1
+                  AND (esc.end_date IS NULL OR esc.end_date >= CURRENT_DATE)
+                  AND esc.start_date <= CURRENT_DATE
+            """, (basic_salary, employee_id))
+            
+            total_deductions = cursor.fetchone()[0] or 0
+            
+            return True, {
+                'basic_salary': basic_salary,
+                'total_allowances': total_allowances,
+                'total_deductions': total_deductions,
+                'net_salary': basic_salary + total_allowances - total_deductions
+            }
             
         except Exception as e:
             return False, str(e)
