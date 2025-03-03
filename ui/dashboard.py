@@ -29,16 +29,20 @@ class StatCard(QFrame):
         title_label.setStyleSheet("font-size: 14px; color: #7f8c8d;")
         
         # Value
-        value_label = QLabel(str(value))
-        value_label.setStyleSheet(f"""
+        self.value_label = QLabel(str(value))
+        self.value_label.setStyleSheet(f"""
             font-size: 24px;
             font-weight: bold;
             color: {color};
         """)
         
         layout.addWidget(title_label)
-        layout.addWidget(value_label)
+        layout.addWidget(self.value_label)
         layout.addStretch()
+    
+    def set_value(self, value):
+        """Update the displayed value"""
+        self.value_label.setText(str(value))
 
 class RecentTable(QTableWidget):
     def __init__(self, headers):
@@ -218,16 +222,60 @@ class Dashboard(QWidget):
                 # Direct list return
                 employees = result if isinstance(result, list) else []
             
-            # Update stat cards safely
-            for card in [self.total_employees_card, self.active_employees_card, self.total_salaries_card, self.avg_salary_card]:
-                if hasattr(card, 'set_value'):
-                    card.set_value(str(len(employees)))
-                    break
+            # Update total employees stat card
+            self.total_employees_card.set_value(str(len(employees)))
+            
+            # Calculate active employees
+            active_employees = sum(1 for emp in employees if emp.get('is_active', 1) == 1)
+            self.active_employees_card.set_value(str(active_employees))
+            
+            # Calculate total and average salaries
+            if employees:
+                total_salary = sum(float(emp.get('basic_salary', 0)) for emp in employees)
+                avg_salary = total_salary / len(employees) if len(employees) > 0 else 0
+                self.total_salaries_card.set_value(f"{total_salary:,.2f}")
+                self.avg_salary_card.set_value(f"{avg_salary:,.2f}")
+            
+            # Update department chart
+            if employees and hasattr(self, 'dept_series'):
+                self.dept_series.clear()
+                dept_counts = {}
+                for emp in employees:
+                    dept_name = emp.get('department_name', 'غير محدد')
+                    dept_counts[dept_name] = dept_counts.get(dept_name, 0) + 1
+                
+                for dept, count in dept_counts.items():
+                    self.dept_series.append(dept, count)
+            
+            # Update salary distribution chart
+            if employees and hasattr(self, 'salary_series'):
+                self.salary_series.clear()
+                salary_ranges = [
+                    (0, 5000, "0-5k"),
+                    (5000, 10000, "5k-10k"),
+                    (10000, 15000, "10k-15k"),
+                    (15000, 20000, "15k-20k"),
+                    (20000, float('inf'), "20k+")
+                ]
+                
+                salary_dist = QBarSet("توزيع الرواتب")
+                categories = []
+                
+                for start, end, label in salary_ranges:
+                    count = sum(1 for emp in employees if start <= float(emp.get('basic_salary', 0)) < end)
+                    salary_dist.append(count)
+                    categories.append(label)
+                
+                self.salary_series.append(salary_dist)
+                
+                # Make sure we have at least one axis attached
+                if self.salary_series.attachedAxes():
+                    self.salary_series.attachedAxes()[1].setCategories(categories)
             
             # Only proceed if we have employees
             if employees:
-                # Get recent employees (up to 5)
                 try:
+                    # Get recent employees (up to 5)
                     recent_employees = sorted(employees, key=lambda x: x.get('hire_date', ''), reverse=True)
                     if len(recent_employees) > 5:
                         recent_employees = recent_employees[:5]
@@ -300,18 +348,80 @@ class Dashboard(QWidget):
             self.active_users.setText(f"Active Users\n{count}")
 
     def update_payroll_chart(self):
-        success, data = self.report_controller.get_payroll_distribution()
-        if success:
-            chart = chart_utils.create_pie_chart("Payroll Distribution", data)
-            self.payroll_chart.setChart(chart.chart())
+        """Update the payroll distribution chart"""
+        try:
+            success, data = self.report_controller.get_payroll_distribution()
+            if success:
+                labels, values = data
+                
+                # Create chart
+                chart = QChart()
+                chart.setTitle("توزيع الرواتب حسب الأقسام")
+                chart.setAnimationOptions(QChart.SeriesAnimations)
+                
+                # Create pie series
+                series = QPieSeries()
+                
+                # Add data to series
+                for i, label in enumerate(labels):
+                    series.append(f"{label} ({values[i]:,.2f})", values[i])
+                
+                # Make first slice exploded
+                if series.count() > 0:
+                    slice = series.slices()[0]
+                    slice.setExploded(True)
+                    slice.setLabelVisible(True)
+                
+                chart.addSeries(series)
+                chart.legend().setVisible(True)
+                chart.legend().setAlignment(Qt.AlignBottom)
+                
+                # Set chart to chart view
+                self.payroll_chart.setChart(chart)
+                
+        except Exception as e:
+            print(f"Error updating payroll chart: {str(e)}")
 
     def update_attendance_chart(self):
-        success, data = self.report_controller.get_attendance_stats()
-        if success:
-            chart = chart_utils.create_bar_chart(
-                "Attendance Overview",
-                data['departments'],
-                data['attendance_rates'],
-                QColor('#27ae60')
-            )
-            self.attendance_chart.setChart(chart.chart())
+        """Update the attendance chart"""
+        try:
+            success, data = self.report_controller.get_attendance_stats()
+            if success:
+                dates, attendance, total = data
+                
+                # Create chart
+                chart = QChart()
+                chart.setTitle("إحصائيات الحضور آخر 7 أيام")
+                chart.setAnimationOptions(QChart.SeriesAnimations)
+                
+                # Create bar series
+                series = QBarSeries()
+                
+                # Create bar set
+                bar_set = QBarSet("الحضور")
+                
+                # Add data to bar set
+                for value in attendance:
+                    bar_set.append(value)
+                
+                series.append(bar_set)
+                chart.addSeries(series)
+                
+                # Create axes
+                axis_x = QBarCategoryAxis()
+                axis_x.append(dates)
+                chart.addAxis(axis_x, Qt.AlignBottom)
+                series.attachAxis(axis_x)
+                
+                axis_y = QValueAxis()
+                axis_y.setRange(0, total)
+                axis_y.setTickCount(5)
+                axis_y.setLabelFormat("%d")
+                chart.addAxis(axis_y, Qt.AlignLeft)
+                series.attachAxis(axis_y)
+                
+                # Set chart to chart view
+                self.attendance_chart.setChart(chart)
+                
+        except Exception as e:
+            print(f"Error updating attendance chart: {str(e)}")

@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from PyQt5.QtCore import QObject
 
 class ReportController(QObject):
@@ -41,44 +41,66 @@ class ReportController(QObject):
         return self._execute_query(query)
         
     def get_employee_count(self):
-        """Get total number of employees"""
+        """Get the total number of employees"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM employees")
+            
+            cursor.execute("SELECT COUNT(*) FROM employees WHERE is_active = 1")
             count = cursor.fetchone()[0]
+            
             return True, count
+            
         except Exception as e:
             return False, str(e)
         finally:
             conn.close()
             
     def get_monthly_payroll(self):
-        """Get total monthly payroll amount"""
+        """Get the total payroll amount for the current month"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
+            
+            # Get current month and year
             current_month = datetime.now().strftime('%Y-%m')
+            
+            # Try to get payroll data from payroll_entries table
             cursor.execute("""
                 SELECT SUM(net_salary) 
                 FROM payroll_entries 
                 WHERE strftime('%Y-%m', payment_date) = ?
             """, (current_month,))
-            total = cursor.fetchone()[0] or 0
-            return True, total
+            
+            total = cursor.fetchone()[0]
+            
+            # If no payroll data for current month, calculate from employee basic salaries
+            if not total:
+                cursor.execute("""
+                    SELECT SUM(basic_salary) 
+                    FROM employees 
+                    WHERE is_active = 1
+                """)
+                total = cursor.fetchone()[0]
+            
+            return True, total or 0
+            
         except Exception as e:
             return False, str(e)
         finally:
             conn.close()
             
     def get_active_users(self):
-        """Get count of active system users"""
+        """Get the number of active users"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
+            
             cursor.execute("SELECT COUNT(*) FROM users WHERE is_active = 1")
             count = cursor.fetchone()[0]
+            
             return True, count
+            
         except Exception as e:
             return False, str(e)
         finally:
@@ -89,39 +111,72 @@ class ReportController(QObject):
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
+            
             cursor.execute("""
-                SELECT d.name, SUM(p.net_salary)
-                FROM payroll_entries p
-                JOIN employees e ON p.employee_id = e.id
+                SELECT d.name, SUM(e.basic_salary) as total
+                FROM employees e
                 JOIN departments d ON e.department_id = d.id
-                WHERE strftime('%Y-%m', p.payment_date) = strftime('%Y-%m', 'now')
+                WHERE e.is_active = 1
                 GROUP BY d.name
+                ORDER BY total DESC
             """)
-            result = {row[0]: row[1] for row in cursor.fetchall()}
-            return True, result
+            
+            results = cursor.fetchall()
+            
+            # Format data for chart
+            labels = []
+            values = []
+            
+            for row in results:
+                labels.append(row[0])
+                values.append(float(row[1]))
+                
+            return True, (labels, values)
+            
         except Exception as e:
             return False, str(e)
         finally:
             conn.close()
             
     def get_attendance_stats(self):
-        """Get attendance statistics by department"""
+        """Get attendance statistics for the last 7 days"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
+            
+            # Get dates for the last 7 days
+            today = datetime.now().date()
+            dates = [(today - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+            dates.reverse()  # Oldest first
+            
+            # Try to get attendance data if available
             cursor.execute("""
-                SELECT d.name, 
-                       COUNT(CASE WHEN a.status = 'present' THEN 1 END) * 100.0 / COUNT(*) as rate
-                FROM attendance a
-                JOIN employees e ON a.employee_id = e.id
-                JOIN departments d ON e.department_id = d.id
-                WHERE strftime('%Y-%m', a.date) = strftime('%Y-%m', 'now')
-                GROUP BY d.name
-            """)
-            results = cursor.fetchall()
-            departments = [row[0] for row in results]
-            rates = [row[1] for row in results]
-            return True, {'departments': departments, 'attendance_rates': rates}
+                SELECT date, COUNT(*) 
+                FROM attendance 
+                WHERE date >= ? 
+                GROUP BY date
+                ORDER BY date
+            """, (dates[0],))
+            
+            attendance_data = cursor.fetchall()
+            
+            # Convert to dict for easier lookup
+            attendance_dict = {row[0]: row[1] for row in attendance_data}
+            
+            # Get total employee count
+            cursor.execute("SELECT COUNT(*) FROM employees WHERE is_active = 1")
+            total_employees = cursor.fetchone()[0]
+            
+            # Prepare data for chart
+            labels = []
+            values = []
+            
+            for date_str in dates:
+                labels.append(date_str)
+                values.append(attendance_dict.get(date_str, 0))
+                
+            return True, (labels, values, total_employees)
+            
         except Exception as e:
             return False, str(e)
         finally:
