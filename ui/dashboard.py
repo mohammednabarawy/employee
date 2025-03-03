@@ -1,10 +1,12 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QScrollArea, QSizePolicy, QTableWidget,
                              QTableWidgetItem, QHeaderView)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtChart import QChart, QChartView, QPieSeries, QBarSeries, QBarSet, QValueAxis, QBarCategoryAxis
 from PyQt5.QtGui import QPainter, QColor
 from datetime import datetime, timedelta
+from controllers import ReportController
+from utils import chart_utils
 
 class StatCard(QFrame):
     def __init__(self, title, value, icon=None, color="#3498db"):
@@ -63,13 +65,21 @@ class RecentTable(QTableWidget):
         """)
 
 class Dashboard(QWidget):
-    def __init__(self, employee_controller, salary_controller):
+    def __init__(self, employee_controller, payroll_controller, db):
         super().__init__()
         self.employee_controller = employee_controller
-        self.salary_controller = salary_controller
+        self.payroll_controller = payroll_controller
+        self.db = db
+        self.report_controller = ReportController(db)
         self.init_ui()
         self.refresh_data()
+        self.load_data()
         
+        # Setup auto-refresh
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.load_data)
+        self.timer.start(30000)  # Refresh every 30 seconds
+
     def init_ui(self):
         # Create main layout
         main_layout = QVBoxLayout(self)
@@ -129,13 +139,13 @@ class Dashboard(QWidget):
         salary_axis_y = QValueAxis()
         salary_axis_y.setTitleText("عدد الموظفين")
         salary_chart.addAxis(salary_axis_y, Qt.AlignLeft)
-        self.salary_series.attachAxis(salary_axis_y)
         
         salary_axis_x = QBarCategoryAxis()
         salary_chart.addAxis(salary_axis_x, Qt.AlignBottom)
-        self.salary_series.attachAxis(salary_axis_x)
         
         salary_chart.addSeries(self.salary_series)
+        self.salary_series.attachAxis(salary_axis_y)
+        self.salary_series.attachAxis(salary_axis_x)
         
         salary_chart_view = QChartView(salary_chart)
         salary_chart_view.setRenderHint(QPainter.Antialiasing)
@@ -152,7 +162,7 @@ class Dashboard(QWidget):
         recent_employees_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
         recent_employees_layout.addWidget(recent_employees_title)
         
-        self.recent_employees_table = RecentTable(["الاسم", "القسم", "تاريخ التعيين"])
+        self.recent_employees_table = RecentTable(["الاسم", "المنصب", "تاريخ التعيين"])
         recent_employees_layout.addWidget(self.recent_employees_table)
         recent_layout.addLayout(recent_employees_layout)
         
@@ -162,81 +172,146 @@ class Dashboard(QWidget):
         recent_salaries_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
         recent_salaries_layout.addWidget(recent_salaries_title)
         
-        self.recent_salaries_table = RecentTable(["الموظف", "المبلغ", "التاريخ", "الحالة"])
-        recent_salaries_layout.addWidget(self.recent_salaries_table)
+        self.recent_payroll_table = RecentTable(["الموظف", "المبلغ", "التاريخ"])
+        recent_salaries_layout.addWidget(self.recent_payroll_table)
         recent_layout.addLayout(recent_salaries_layout)
         
         content_layout.addLayout(recent_layout)
+        
+        # Real-time dashboard components
+        metrics_layout = QHBoxLayout()
+        self.employee_count = QLabel('Loading...')
+        self.payroll_total = QLabel('Loading...')
+        self.active_users = QLabel('Loading...')
+        
+        for widget in [self.employee_count, self.payroll_total, self.active_users]:
+            widget.setAlignment(Qt.AlignCenter)
+            widget.setStyleSheet('font-size: 16px; padding: 15px;')
+            metrics_layout.addWidget(widget)
+        
+        content_layout.addLayout(metrics_layout)
+
+        charts_layout = QHBoxLayout()
+        self.payroll_chart = QChartView()
+        self.attendance_chart = QChartView()
+        
+        for chart in [self.payroll_chart, self.attendance_chart]:
+            chart.setRenderHint(QPainter.Antialiasing)
+            charts_layout.addWidget(chart)
+        
+        content_layout.addLayout(charts_layout)
         
         # Set content widget to scroll area
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
         
     def refresh_data(self):
-        # Get statistics
-        employees = self.employee_controller.get_all_employees()
-        salaries = self.salary_controller.get_all_salaries()
+        """Refresh dashboard data"""
+        try:
+            # Get employee count - handle tuple return value (success, data)
+            result = self.employee_controller.get_all_employees()
+            if isinstance(result, tuple) and len(result) == 2:
+                success, employees = result
+                if not success or not employees:
+                    employees = []
+            else:
+                # Direct list return
+                employees = result if isinstance(result, list) else []
+            
+            # Update stat cards safely
+            for card in [self.total_employees_card, self.active_employees_card, self.total_salaries_card, self.avg_salary_card]:
+                if hasattr(card, 'set_value'):
+                    card.set_value(str(len(employees)))
+                    break
+            
+            # Only proceed if we have employees
+            if employees:
+                # Get recent employees (up to 5)
+                try:
+                    recent_employees = sorted(employees, key=lambda x: x.get('hire_date', ''), reverse=True)
+                    if len(recent_employees) > 5:
+                        recent_employees = recent_employees[:5]
+                    
+                    # Clear and update recent employees table
+                    self.recent_employees_table.setRowCount(0)
+                    for i, emp in enumerate(recent_employees):
+                        self.recent_employees_table.insertRow(i)
+                        self.recent_employees_table.setItem(i, 0, QTableWidgetItem(str(emp.get('name', ''))))
+                        self.recent_employees_table.setItem(i, 1, QTableWidgetItem(str(emp.get('position', ''))))
+                        self.recent_employees_table.setItem(i, 2, QTableWidgetItem(str(emp.get('hire_date', ''))))
+                except Exception as e:
+                    print(f"Error updating employee table: {str(e)}")
+            
+            # Get recent payroll entries
+            result = self.payroll_controller.get_recent_entries(5)
+            if isinstance(result, tuple) and len(result) == 2:
+                success, entries = result
+                if not success or not entries:
+                    entries = []
+            else:
+                # Direct list return
+                entries = result if isinstance(result, list) else []
+            
+            # Update payroll table if we have entries
+            if entries:
+                try:
+                    # Clear and update recent payroll table
+                    self.recent_payroll_table.setRowCount(0)
+                    for i, entry in enumerate(entries):
+                        self.recent_payroll_table.insertRow(i)
+                        self.recent_payroll_table.setItem(i, 0, QTableWidgetItem(str(entry.get('employee_name', ''))))
+                        self.recent_payroll_table.setItem(i, 1, QTableWidgetItem(str(entry.get('gross_salary', 0))))
+                        self.recent_payroll_table.setItem(i, 2, QTableWidgetItem(str(entry.get('payment_date', ''))))
+                except Exception as e:
+                    print(f"Error updating payroll table: {str(e)}")
+            
+            # Try to update real-time metrics
+            try:
+                self.load_data()
+            except Exception as inner_e:
+                print(f"Warning: Could not update real-time metrics: {str(inner_e)}")
+            
+        except Exception as e:
+            print(f"Error refreshing dashboard data: {str(e)}")
+
+    def load_data(self):
+        # Load metrics
+        self.update_employee_count()
+        self.update_payroll_total()
+        self.update_active_users()
         
-        # Update stat cards
-        total_employees = len(employees)
-        active_employees = sum(1 for emp in employees if emp['status'] == 'active')
-        total_salaries = sum(float(salary['amount']) for salary in salaries)
-        avg_salary = total_salaries / total_employees if total_employees > 0 else 0
-        
-        self.total_employees_card.findChild(QLabel, None, Qt.FindChildOption.FindChildrenRecursively)[1].setText(str(total_employees))
-        self.active_employees_card.findChild(QLabel, None, Qt.FindChildOption.FindChildrenRecursively)[1].setText(str(active_employees))
-        self.total_salaries_card.findChild(QLabel, None, Qt.FindChildOption.FindChildrenRecursively)[1].setText(f"{total_salaries:,.2f}")
-        self.avg_salary_card.findChild(QLabel, None, Qt.FindChildOption.FindChildrenRecursively)[1].setText(f"{avg_salary:,.2f}")
-        
-        # Update department chart
-        self.dept_series.clear()
-        dept_counts = {}
-        for emp in employees:
-            dept = emp['department']
-            dept_counts[dept] = dept_counts.get(dept, 0) + 1
-        
-        for dept, count in dept_counts.items():
-            self.dept_series.append(dept, count)
-        
-        # Update salary distribution chart
-        self.salary_series.clear()
-        salary_ranges = [
-            (0, 5000, "0-5k"),
-            (5000, 10000, "5k-10k"),
-            (10000, 15000, "10k-15k"),
-            (15000, 20000, "15k-20k"),
-            (20000, float('inf'), "20k+")
-        ]
-        
-        salary_dist = QBarSet("توزيع الرواتب")
-        categories = []
-        
-        for start, end, label in salary_ranges:
-            count = sum(1 for emp in employees if start <= float(emp['basic_salary']) < end)
-            salary_dist.append(count)
-            categories.append(label)
-        
-        self.salary_series.append(salary_dist)
-        self.salary_series.attachedAxes()[1].setCategories(categories)
-        
-        # Update recent employees table
-        self.recent_employees_table.setRowCount(0)
-        sorted_employees = sorted(employees, key=lambda x: x['hire_date'], reverse=True)[:5]
-        
-        for i, emp in enumerate(sorted_employees):
-            self.recent_employees_table.insertRow(i)
-            self.recent_employees_table.setItem(i, 0, QTableWidgetItem(emp['name']))
-            self.recent_employees_table.setItem(i, 1, QTableWidgetItem(emp['department']))
-            self.recent_employees_table.setItem(i, 2, QTableWidgetItem(emp['hire_date']))
-        
-        # Update recent salaries table
-        self.recent_salaries_table.setRowCount(0)
-        sorted_salaries = sorted(salaries, key=lambda x: x['payment_date'], reverse=True)[:5]
-        
-        for i, salary in enumerate(sorted_salaries):
-            self.recent_salaries_table.insertRow(i)
-            emp = next((emp for emp in employees if emp['id'] == salary['employee_id']), None)
-            self.recent_salaries_table.setItem(i, 0, QTableWidgetItem(emp['name'] if emp else str(salary['employee_id'])))
-            self.recent_salaries_table.setItem(i, 1, QTableWidgetItem(f"{float(salary['amount']):,.2f}"))
-            self.recent_salaries_table.setItem(i, 2, QTableWidgetItem(salary['payment_date']))
-            self.recent_salaries_table.setItem(i, 3, QTableWidgetItem(salary['status']))
+        # Load charts
+        self.update_payroll_chart()
+        self.update_attendance_chart()
+
+    def update_employee_count(self):
+        success, count = self.report_controller.get_employee_count()
+        if success:
+            self.employee_count.setText(f"Total Employees\n{count}")
+
+    def update_payroll_total(self):
+        success, total = self.report_controller.get_monthly_payroll()
+        if success:
+            self.payroll_total.setText(f"Monthly Payroll\n{total:,.2f} EGP")
+
+    def update_active_users(self):
+        success, count = self.report_controller.get_active_users()
+        if success:
+            self.active_users.setText(f"Active Users\n{count}")
+
+    def update_payroll_chart(self):
+        success, data = self.report_controller.get_payroll_distribution()
+        if success:
+            chart = chart_utils.create_pie_chart("Payroll Distribution", data)
+            self.payroll_chart.setChart(chart.chart())
+
+    def update_attendance_chart(self):
+        success, data = self.report_controller.get_attendance_stats()
+        if success:
+            chart = chart_utils.create_bar_chart(
+                "Attendance Overview",
+                data['departments'],
+                data['attendance_rates'],
+                QColor('#27ae60')
+            )
+            self.attendance_chart.setChart(chart.chart())

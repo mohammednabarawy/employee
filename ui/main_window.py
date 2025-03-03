@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                           QHBoxLayout, QPushButton, QStackedWidget, QLabel)
+                           QHBoxLayout, QPushButton, QStackedWidget, QLabel, QTabWidget)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QIcon
 
@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         self.employee_form = EmployeeForm(self.employee_controller)
         self.salary_form = SalaryForm(self.salary_controller)
         self.reports_form = ReportsForm(self.employee_controller, self.salary_controller)
+        self.admin_page = self.create_admin_page()
 
         # Add pages to stacked widget
         self.stacked_widget.addWidget(self.dashboard)  # index 0
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.employee_form)  # index 2
         self.stacked_widget.addWidget(self.salary_form)  # index 3
         self.stacked_widget.addWidget(self.reports_form)  # index 4
+        self.stacked_widget.addWidget(self.admin_page)  # index 5
 
         # Connect signals
         self.employee_list.employee_selected.connect(self.employee_form.load_employee)
@@ -123,12 +125,17 @@ class MainWindow(QMainWindow):
         self.reports_btn.setCheckable(True)
         self.reports_btn.clicked.connect(lambda: self.switch_page(4))
 
+        self.admin_btn = QPushButton("إدارة المستخدمين")
+        self.admin_btn.setCheckable(True)
+        self.admin_btn.clicked.connect(lambda: self.switch_page(5))
+
         # Add buttons to layout
         layout.addWidget(self.dashboard_btn)
         layout.addWidget(self.emp_list_btn)
         layout.addWidget(self.emp_add_btn)
         layout.addWidget(self.salary_btn)
         layout.addWidget(self.reports_btn)
+        layout.addWidget(self.admin_btn)
         layout.addStretch()
 
         return sidebar
@@ -142,8 +149,37 @@ class MainWindow(QMainWindow):
             self.emp_list_btn,
             self.emp_add_btn,
             self.salary_btn,
-            self.reports_btn
+            self.reports_btn,
+            self.admin_btn
         ]
         
         for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
+
+    def create_admin_page(self):
+        admin_page = QWidget()
+        admin_page_layout = QVBoxLayout(admin_page)
+
+        # Add admin page content here
+        admin_page_layout.addWidget(QLabel("Admin Page"))
+
+        return admin_page
+
+def main():
+    app = QApplication(sys.argv)
+
+    # Create controllers
+    employee_controller = EmployeeController()
+    salary_controller = SalaryController()
+
+    # Create main window
+    main_window = MainWindow(employee_controller, salary_controller)
+
+    # Show main window
+    main_window.show()
+
+    # Run application
+    sys.exit(app.exec_())
+
+if __name__ == "__main__":
+    main()

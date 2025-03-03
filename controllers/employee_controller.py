@@ -25,24 +25,38 @@ class EmployeeController(QObject):
     
     def _pixmap_from_data(self, photo_data, mime_type):
         """Convert binary image data to QPixmap"""
-        if not photo_data:
-            return None
-        
         image = QImage.fromData(photo_data, mime_type.split('/')[-1].upper())
         return QPixmap.fromImage(image)
+
+    def _generate_employee_code(self, cursor):
+        """Generate a unique employee code"""
+        # Get the current max code
+        cursor.execute("SELECT MAX(CAST(SUBSTR(code, 2) AS INTEGER)) FROM employees WHERE code LIKE 'E%'")
+        result = cursor.fetchone()[0]
+        
+        # Start with 1 if no existing codes, otherwise increment the max
+        next_number = 1 if result is None else result + 1
+        
+        # Format as E0001, E0002, etc.
+        return f'E{next_number:04d}'
 
     def add_employee(self, employee_data):
         """Add a new employee to the database"""
         try:
+            # Validate required fields
+            required_fields = ['name', 'hire_date']
+            for field in required_fields:
+                if not employee_data.get(field):
+                    return False, f"الحقل {field} مطلوب"
+                    
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
             cursor.execute("BEGIN TRANSACTION")
             
             try:
-                # Get admin user id for created_by
-                cursor.execute("SELECT id FROM users WHERE username = 'admin' LIMIT 1")
-                admin_id = cursor.fetchone()[0]
+                # Generate unique employee code
+                employee_data['code'] = self._generate_employee_code(cursor)
                 
                 # Handle photo data
                 photo_data = None
@@ -50,84 +64,42 @@ class EmployeeController(QObject):
                 if 'photo_path' in employee_data and employee_data['photo_path']:
                     photo_data = self._read_image_file(employee_data['photo_path'])
                     photo_mime_type = self._get_mime_type(employee_data['photo_path'])
-                
+
                 # Insert into employees table
                 employee_query = """
                     INSERT INTO employees (
-                        name, name_ar, dob, gender, nationality,
-                        national_id, passport_number, phone_primary,
-                        phone_secondary, email, address,
-                        photo_data, photo_mime_type,
-                        created_by, updated_by, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        code, name, name_ar, department_id, position_id,
+                        basic_salary, hire_date, birth_date, gender,
+                        marital_status, national_id, phone, email,
+                        address, bank_account, bank_name, photo_data,
+                        photo_mime_type, is_active,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """
                 
                 cursor.execute(employee_query, (
+                    employee_data.get('code'),
                     employee_data.get('name'),
                     employee_data.get('name_ar'),
-                    employee_data.get('dob'),
+                    employee_data.get('department_id'),
+                    employee_data.get('position_id'),
+                    employee_data.get('basic_salary', 0),
+                    employee_data.get('hire_date'),
+                    employee_data.get('birth_date'),
                     employee_data.get('gender'),
-                    employee_data.get('nationality'),
+                    employee_data.get('marital_status'),
                     employee_data.get('national_id'),
-                    employee_data.get('passport_number'),
-                    employee_data.get('phone_primary'),
-                    employee_data.get('phone_secondary'),
+                    employee_data.get('phone'),
                     employee_data.get('email'),
                     employee_data.get('address'),
+                    employee_data.get('bank_account'),
+                    employee_data.get('bank_name'),
                     photo_data,
                     photo_mime_type,
-                    admin_id,  # created_by
-                    admin_id   # updated_by
+                    employee_data.get('is_active', 1)
                 ))
                 
                 employee_id = cursor.lastrowid
-                
-                # Get or create department
-                department_name = employee_data.get('department_name', 'الإدارة العامة')
-                cursor.execute("""
-                    INSERT OR IGNORE INTO departments (name, code, created_by, updated_by)
-                    VALUES (?, ?, ?, ?)
-                """, (department_name, department_name[:3].upper(), admin_id, admin_id))
-                
-                cursor.execute("SELECT id FROM departments WHERE name = ?", (department_name,))
-                department_id = cursor.fetchone()[0]
-                
-                # Get or create position
-                position_title = employee_data.get('position_title', 'موظف')
-                cursor.execute("""
-                    INSERT OR IGNORE INTO positions (title, code, created_by, updated_by)
-                    VALUES (?, ?, ?, ?)
-                """, (position_title, position_title[:3].upper(), admin_id, admin_id))
-                
-                cursor.execute("SELECT id FROM positions WHERE title = ?", (position_title,))
-                position_id = cursor.fetchone()[0]
-                
-                # Insert into employment_details table
-                employment_query = """
-                    INSERT INTO employment_details (
-                        employee_id, department_id, position_id,
-                        hire_date, contract_type, employee_status,
-                        basic_salary, salary_currency, salary_type,
-                        bank_account, created_by, updated_by,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """
-                
-                cursor.execute(employment_query, (
-                    employee_id,
-                    department_id,
-                    position_id,
-                    employee_data.get('hire_date'),
-                    employee_data.get('contract_type', 'دوام كامل'),
-                    employee_data.get('employee_status', 'نشط'),
-                    employee_data.get('basic_salary', 0),
-                    employee_data.get('salary_currency', 'ريال سعودي'),
-                    employee_data.get('salary_type', 'شهري'),
-                    employee_data.get('bank_account', ''),
-                    admin_id,
-                    admin_id
-                ))
-                
                 cursor.execute("COMMIT")
                 
                 # Convert photo data to QPixmap for the UI
@@ -150,80 +122,77 @@ class EmployeeController(QObject):
     def update_employee(self, employee_id, employee_data):
         """Update an existing employee's information"""
         try:
+            # Validate required fields
+            required_fields = ['name', 'hire_date']
+            for field in required_fields:
+                if field in employee_data and not employee_data.get(field):
+                    return False, f"الحقل {field} مطلوب"
+                    
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
             cursor.execute("BEGIN TRANSACTION")
             
             try:
-                # Get admin user id for updated_by
-                cursor.execute("SELECT id FROM users WHERE username = 'admin' LIMIT 1")
-                admin_id = cursor.fetchone()[0]
-                
                 # Handle photo data
                 photo_data = None
                 photo_mime_type = None
                 if 'photo_path' in employee_data and employee_data['photo_path']:
                     photo_data = self._read_image_file(employee_data['photo_path'])
                     photo_mime_type = self._get_mime_type(employee_data['photo_path'])
-                
+
                 # Update employees table
                 employee_query = """
                     UPDATE employees SET
-                        name = ?, name_ar = ?, dob = ?, gender = ?,
-                        nationality = ?, national_id = ?, passport_number = ?,
-                        phone_primary = ?, phone_secondary = ?, email = ?,
-                        address = ?, photo_data = COALESCE(?, photo_data),
+                        code = COALESCE(?, code),
+                        name = COALESCE(?, name),
+                        name_ar = ?,
+                        department_id = ?,
+                        position_id = ?,
+                        basic_salary = COALESCE(?, basic_salary),
+                        hire_date = COALESCE(?, hire_date),
+                        birth_date = ?,
+                        gender = ?,
+                        marital_status = ?,
+                        national_id = ?,
+                        phone = ?,
+                        email = ?,
+                        address = ?,
+                        bank_account = ?,
+                        bank_name = ?,
+                        photo_data = COALESCE(?, photo_data),
                         photo_mime_type = COALESCE(?, photo_mime_type),
-                        updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                        is_active = COALESCE(?, is_active),
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """
                 
                 cursor.execute(employee_query, (
+                    employee_data.get('code'),
                     employee_data.get('name'),
                     employee_data.get('name_ar'),
-                    employee_data.get('dob'),
+                    employee_data.get('department_id'),
+                    employee_data.get('position_id'),
+                    employee_data.get('basic_salary'),
+                    employee_data.get('hire_date'),
+                    employee_data.get('birth_date'),
                     employee_data.get('gender'),
-                    employee_data.get('nationality'),
+                    employee_data.get('marital_status'),
                     employee_data.get('national_id'),
-                    employee_data.get('passport_number'),
-                    employee_data.get('phone_primary'),
-                    employee_data.get('phone_secondary'),
+                    employee_data.get('phone'),
                     employee_data.get('email'),
                     employee_data.get('address'),
+                    employee_data.get('bank_account'),
+                    employee_data.get('bank_name'),
                     photo_data,
                     photo_mime_type,
-                    admin_id,  # updated_by
-                    employee_id
-                ))
-                
-                # Update employment_details table
-                employment_query = """
-                    UPDATE employment_details SET
-                        hire_date = ?,
-                        contract_type = ?,
-                        employee_status = ?,
-                        basic_salary = ?,
-                        salary_currency = ?,
-                        salary_type = ?,
-                        bank_account = ?
-                    WHERE employee_id = ?
-                """
-                
-                cursor.execute(employment_query, (
-                    employee_data.get('hire_date'),
-                    employee_data.get('contract_type', 'دوام كامل'),
-                    employee_data.get('employee_status', 'نشط'),
-                    employee_data.get('basic_salary', 0),
-                    employee_data.get('salary_currency', 'SAR'),
-                    employee_data.get('salary_type', 'شهري'),
-                    employee_data.get('bank_account'),
+                    employee_data.get('is_active'),
                     employee_id
                 ))
                 
                 cursor.execute("COMMIT")
                 
-                # Convert photo data to QPixmap for the UI
+                # If photo was updated, convert it to QPixmap for the UI
                 if photo_data and photo_mime_type:
                     employee_data['photo_pixmap'] = self._pixmap_from_data(photo_data, photo_mime_type)
                 
@@ -303,29 +272,32 @@ class EmployeeController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            query = """
-                SELECT e.*, ed.*
+            cursor.execute("""
+                SELECT 
+                    e.*, 
+                    d.name as department_name,
+                    p.name as position_name
                 FROM employees e
-                LEFT JOIN employment_details ed ON e.id = ed.employee_id
+                LEFT JOIN departments d ON e.department_id = d.id
+                LEFT JOIN positions p ON e.position_id = p.id
                 WHERE e.id = ?
-            """
+            """, (employee_id,))
             
-            cursor.execute(query, (employee_id,))
             row = cursor.fetchone()
+            if not row:
+                return False, "الموظف غير موجود"
+                
+            columns = [column[0] for column in cursor.description]
+            employee_data = dict(zip(columns, row))
             
-            if row:
-                columns = [description[0] for description in cursor.description]
-                employee_dict = dict(zip(columns, row))
-                
-                # Convert photo data to QPixmap if exists
-                if employee_dict.get('photo_data') and employee_dict.get('photo_mime_type'):
-                    employee_dict['photo_pixmap'] = self._pixmap_from_data(
-                        employee_dict['photo_data'],
-                        employee_dict['photo_mime_type']
-                    )
-                
-                return True, employee_dict
-            return False, "Employee not found"
+            # Convert photo data to QPixmap if available
+            if employee_data.get('photo_data') and employee_data.get('photo_mime_type'):
+                employee_data['photo_pixmap'] = self._pixmap_from_data(
+                    employee_data['photo_data'],
+                    employee_data['photo_mime_type']
+                )
+            
+            return True, employee_data
             
         except Exception as e:
             return False, str(e)

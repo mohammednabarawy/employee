@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QComboBox, QTableWidget, QTableWidgetItem,
                              QMessageBox, QCalendarWidget, QDialog, QCheckBox, 
                              QDoubleSpinBox, QFormLayout, QDialogButtonBox, 
-                             QTextEdit, QMenu, QLineEdit, QFrame)
+                             QTextEdit, QMenu, QLineEdit, QFrame, QGroupBox)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QIcon
 import qtawesome as qta
@@ -259,47 +259,47 @@ class PayrollForm(QWidget):
         self.employee_controller = employee_controller
         self.current_period_id = None
         self.init_ui()
-
+        
     def init_ui(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
-
-        # Add title
-        title = QLabel("إدارة الرواتب")
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        # Add period selector
+        
+        # Create top section for period selection and creation
+        period_group = QGroupBox("فترة الرواتب")
         period_layout = QHBoxLayout()
+        period_group.setLayout(period_layout)
         
-        # Month selector
-        month_label = QLabel("الشهر:")
-        self.month_combo = QComboBox()
-        self.month_combo.addItems([
-            "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
-            "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
-        ])
-        current_month = datetime.now().month
-        self.month_combo.setCurrentIndex(current_month - 1)
+        # Add period selector
+        self.period_combo = QComboBox()
+        self.period_combo.currentIndexChanged.connect(self.period_selected)
+        period_layout.addWidget(self.period_combo)
         
-        # Year selector
-        year_label = QLabel("السنة:")
+        # Year and Month selection for new period
         self.year_combo = QComboBox()
         current_year = datetime.now().year
         self.year_combo.addItems([str(year) for year in range(current_year - 2, current_year + 3)])
         self.year_combo.setCurrentText(str(current_year))
         
-        period_layout.addWidget(month_label)
-        period_layout.addWidget(self.month_combo)
-        period_layout.addWidget(year_label)
+        self.month_combo = QComboBox()
+        self.month_combo.addItems([
+            "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
+            "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+        ])
+        self.month_combo.setCurrentIndex(datetime.now().month - 1)
+        
+        period_layout.addWidget(QLabel("السنة:"))
         period_layout.addWidget(self.year_combo)
-        layout.addLayout(period_layout)
-
-        # Add action buttons
-        button_layout = QHBoxLayout()
+        period_layout.addWidget(QLabel("الشهر:"))
+        period_layout.addWidget(self.month_combo)
         
         self.create_period_btn = QPushButton("إنشاء فترة جديدة")
         self.create_period_btn.clicked.connect(self.create_period)
+        period_layout.addWidget(self.create_period_btn)
+        
+        layout.addWidget(period_group)
+        
+        # Button layout
+        button_layout = QHBoxLayout()
         
         self.add_employee_btn = QPushButton("إضافة موظفين")
         self.add_employee_btn.clicked.connect(self.add_employees)
@@ -313,12 +313,11 @@ class PayrollForm(QWidget):
         self.process_btn.clicked.connect(self.process_payroll)
         self.process_btn.setEnabled(False)
         
-        button_layout.addWidget(self.create_period_btn)
         button_layout.addWidget(self.add_employee_btn)
         button_layout.addWidget(self.approve_btn)
         button_layout.addWidget(self.process_btn)
         layout.addLayout(button_layout)
-
+        
         # Add payroll table
         self.payroll_table = QTableWidget()
         self.payroll_table.setColumnCount(9)
@@ -330,7 +329,49 @@ class PayrollForm(QWidget):
         self.payroll_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.payroll_table.customContextMenuRequested.connect(self.show_context_menu)
         layout.addWidget(self.payroll_table)
-
+        
+        # Load existing periods
+        self.load_periods()
+        
+    def load_periods(self):
+        """Load all payroll periods into the combo box"""
+        self.period_combo.clear()
+        self.period_combo.addItem("اختر فترة الرواتب...", None)
+        
+        success, periods = self.payroll_controller.get_payroll_periods()
+        if success:
+            for period in periods:
+                # Get Arabic month name
+                month_names = [
+                    "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
+                    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+                ]
+                month_name = month_names[period['month'] - 1]
+                
+                # Create display text
+                display_text = f"{month_name} {period['year']} - {period['status']}"
+                self.period_combo.addItem(display_text, period['id'])
+    
+    def period_selected(self, index):
+        """Handle period selection"""
+        period_id = self.period_combo.currentData()
+        if period_id:
+            self.current_period_id = period_id
+            self.load_payroll_data()
+            
+            # Get period status to enable/disable buttons
+            success, status = self.payroll_controller.get_period_status(period_id)
+            if success:
+                self.add_employee_btn.setEnabled(status in ['draft', 'processing'])
+                self.approve_btn.setEnabled(status == 'draft')
+                self.process_btn.setEnabled(status == 'approved')
+        else:
+            self.current_period_id = None
+            self.payroll_table.setRowCount(0)
+            self.add_employee_btn.setEnabled(False)
+            self.approve_btn.setEnabled(False)
+            self.process_btn.setEnabled(False)
+        
     def show_context_menu(self, pos):
         row = self.payroll_table.rowAt(pos.y())
         if row < 0:
@@ -400,22 +441,70 @@ class PayrollForm(QWidget):
                               f"سيتم طباعة قسيمة راتب الموظف {employee_data.get('الموظف', '')}")
 
     def create_period(self):
-        try:
-            year = int(self.year_combo.currentText())
-            month = self.month_combo.currentIndex() + 1
+        """Create a new payroll period"""
+        current_date = QDate.currentDate()
+        year = current_date.year()
+        month = current_date.month()
+        
+        # Create dialog to select year and month
+        dialog = QDialog(self)
+        dialog.setWindowTitle("إنشاء فترة رواتب جديدة")
+        dialog.setMinimumWidth(400)
+        
+        layout = QVBoxLayout()
+        dialog.setLayout(layout)
+        
+        form_layout = QFormLayout()
+        
+        # Year selection
+        year_combo = QComboBox()
+        years = [year - 1, year, year + 1]
+        for y in years:
+            year_combo.addItem(str(y), y)
+        year_combo.setCurrentText(str(year))
+        form_layout.addRow("السنة:", year_combo)
+        
+        # Month selection
+        month_combo = QComboBox()
+        months = [
+            ("يناير", 1), ("فبراير", 2), ("مارس", 3), ("أبريل", 4),
+            ("مايو", 5), ("يونيو", 6), ("يوليو", 7), ("أغسطس", 8),
+            ("سبتمبر", 9), ("أكتوبر", 10), ("نوفمبر", 11), ("ديسمبر", 12)
+        ]
+        for month_name, month_num in months:
+            month_combo.addItem(month_name, month_num)
+        month_combo.setCurrentIndex(month - 1)
+        form_layout.addRow("الشهر:", month_combo)
+        
+        layout.addLayout(form_layout)
+        
+        # Add buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        if dialog.exec_():
+            selected_year = year_combo.currentData()
+            selected_month = month_combo.currentData()
             
-            # Create payroll period
-            success, result = self.payroll_controller.create_payroll_period(year, month)
-            if not success:
-                QMessageBox.warning(self, "خطأ", f"فشل إنشاء فترة الرواتب: {result}")
-                return
+            # Create the period
+            success, result = self.payroll_controller.create_payroll_period(selected_year, selected_month)
+            
+            if success:
+                self.current_period_id = result
+                self.load_periods()
+                QMessageBox.information(self, "نجاح", "تم إنشاء فترة الرواتب بنجاح")
                 
-            self.current_period_id = result
-            self.add_employee_btn.setEnabled(True)
-            QMessageBox.information(self, "نجاح", "تم إنشاء فترة الرواتب بنجاح")
-            
-        except Exception as e:
-            QMessageBox.critical(self, "خطأ", f"حدث خطأ غير متوقع: {str(e)}")
+                # Find the index of the new period in the combo box
+                for i in range(self.period_combo.count()):
+                    if self.period_combo.itemData(i) == self.current_period_id:
+                        self.period_combo.setCurrentIndex(i)
+                        break
+                
+                self.load_payroll_data()
+            else:
+                QMessageBox.warning(self, "خطأ", f"فشل إنشاء فترة الرواتب: {result}")
 
     def add_employees(self):
         dialog = AddEmployeeDialog(self.employee_controller, self)
@@ -500,7 +589,7 @@ class PayrollForm(QWidget):
         success, status = self.payroll_controller.get_period_status(self.current_period_id)
         if success:
             self.add_employee_btn.setEnabled(status in ['draft', 'processing'])
-            self.approve_btn.setEnabled(status == 'processing')
+            self.approve_btn.setEnabled(status == 'draft')
             self.process_btn.setEnabled(status == 'approved')
 
     def approve_payroll(self):

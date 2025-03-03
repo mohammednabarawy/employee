@@ -7,9 +7,12 @@ SCHEMA = {
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             email TEXT UNIQUE,
+            full_name TEXT,
+            role TEXT CHECK(role IN ('admin', 'manager', 'hr', 'accountant', 'employee')) NOT NULL DEFAULT 'employee',
+            last_login TIMESTAMP,
             is_active INTEGER DEFAULT 1,
-            role TEXT DEFAULT 'user',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''',
     
@@ -26,12 +29,17 @@ SCHEMA = {
             birth_date DATE,
             gender TEXT CHECK(gender IN ('male', 'female')),
             marital_status TEXT,
-            national_id TEXT UNIQUE,
+            national_id TEXT,
             phone TEXT,
             email TEXT,
             address TEXT,
+            salary_currency TEXT NOT NULL DEFAULT 'SAR',
+            salary_type TEXT CHECK(salary_type IN ('monthly', 'hourly', 'daily')) NOT NULL DEFAULT 'monthly',
+            working_hours REAL DEFAULT 40,
             bank_account TEXT,
             bank_name TEXT,
+            photo_data BLOB,
+            photo_mime_type TEXT,
             is_active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -43,31 +51,23 @@ SCHEMA = {
     'departments': '''
         CREATE TABLE IF NOT EXISTS departments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT UNIQUE NOT NULL,
             name TEXT NOT NULL,
             name_ar TEXT,
-            manager_id INTEGER,
-            parent_id INTEGER,
+            description TEXT,
             is_active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (manager_id) REFERENCES employees (id),
-            FOREIGN KEY (parent_id) REFERENCES departments (id)
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''',
     
     'positions': '''
         CREATE TABLE IF NOT EXISTS positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT UNIQUE NOT NULL,
             name TEXT NOT NULL,
             name_ar TEXT,
-            department_id INTEGER,
-            grade INTEGER,
             is_active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (department_id) REFERENCES departments (id)
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''',
     
@@ -239,14 +239,11 @@ SCHEMA = {
     'audit_log': '''
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            user_id INTEGER,
             action TEXT NOT NULL,
-            table_name TEXT NOT NULL,
-            record_id INTEGER,
-            old_values TEXT,
-            new_values TEXT,
+            description TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             ip_address TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     ''',
@@ -260,6 +257,32 @@ SCHEMA = {
             description TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(category, key)
+        )
+    ''',
+    
+    'salary_adjustments': '''
+        CREATE TABLE IF NOT EXISTS salary_adjustments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            adjustment_type TEXT CHECK(
+                adjustment_type IN ('increase', 'decrease', 'one_time')
+            ) NOT NULL,
+            amount REAL NOT NULL,
+            percentage REAL,
+            reason TEXT NOT NULL,
+            effective_date DATE NOT NULL,
+            end_date DATE,
+            status TEXT CHECK(
+                status IN ('pending', 'approved', 'rejected')
+            ) NOT NULL DEFAULT 'pending',
+            approved_by INTEGER,
+            approved_at TIMESTAMP,
+            created_by INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees (id),
+            FOREIGN KEY (approved_by) REFERENCES users (id),
+            FOREIGN KEY (created_by) REFERENCES users (id)
         )
     '''
 }

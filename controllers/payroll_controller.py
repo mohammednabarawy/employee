@@ -1,6 +1,8 @@
 from datetime import datetime, date
-from PyQt5.QtCore import QObject, pyqtSignal
+from typing import Dict, List, Optional, Tuple, Union
 from decimal import Decimal
+from PyQt5.QtCore import QObject, pyqtSignal
+from .employee_details_controller import EmployeeDetailsController
 
 class PayrollController(QObject):
     payroll_generated = pyqtSignal(dict)
@@ -10,6 +12,7 @@ class PayrollController(QObject):
     def __init__(self, database):
         super().__init__()
         self.db = database
+        self.employee_details = EmployeeDetailsController(database)
 
     def create_payroll_period(self, year, month):
         """Create a new payroll period"""
@@ -63,155 +66,135 @@ class PayrollController(QObject):
         finally:
             conn.close()
 
-    def create_period(self, year, month):
-        """Create a new payroll period"""
-        try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            # Check if period already exists
-            cursor.execute("""
-                SELECT id, status FROM payroll_periods 
-                WHERE year = ? AND month = ?
-            """, (year, month))
-            
-            existing = cursor.fetchone()
-            if existing:
-                if existing[1] == 'draft':
-                    return True, existing[0]
-                return False, "فترة الرواتب موجودة بالفعل"
-            
-            # Create new period
-            cursor.execute("""
-                INSERT INTO payroll_periods (year, month, status)
-                VALUES (?, ?, 'draft')
-            """, (year, month))
-            
-            period_id = cursor.lastrowid
-            conn.commit()
-            
-            return True, period_id
-            
-        except Exception as e:
-            return False, str(e)
-        finally:
-            conn.close()
-
     def generate_payroll(self, period_id):
         """Generate payroll entries for all active employees"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
-            
-            # Get all active employees
+
+            # Get period details
             cursor.execute("""
-                SELECT e.id, e.name, ed.basic_salary, ed.salary_currency
-                FROM employees e
-                JOIN employment_details ed ON e.id = ed.employee_id
-                WHERE ed.employee_status = 'نشط'
-                  AND ed.basic_salary IS NOT NULL
-                  AND ed.basic_salary > 0
+                SELECT period_year, period_month, start_date, end_date
+                FROM payroll_periods
+                WHERE id = ?
+            """, (period_id,))
+
+            period = cursor.fetchone()
+            if not period:
+                return False, "فترة الرواتب غير موجودة"
+
+            period_year, period_month, start_date, end_date = period
+
+            # Get active employees
+            cursor.execute("""
+                SELECT id 
+                FROM employees 
+                WHERE is_active = 1
             """)
-            
+
             employees = cursor.fetchall()
-            
-            # Start transaction
-            cursor.execute("BEGIN TRANSACTION")
-            
-            try:
-                for emp_id, name, basic_salary, currency in employees:
-                    # Calculate allowances
-                    cursor.execute("""
-                        SELECT SUM(CASE 
-                            WHEN sc.is_percentage = 1 THEN ? * (sc.percentage / 100)
-                            ELSE COALESCE(esc.value, sc.value)
-                        END) as total_allowances
-                        FROM salary_components sc
-                        LEFT JOIN employee_salary_components esc ON 
-                            sc.id = esc.component_id AND 
-                            esc.employee_id = ? AND 
-                            esc.is_active = 1
-                        WHERE sc.type = 'allowance' AND sc.is_active = 1
-                    """, (basic_salary, emp_id))
-                    
-                    total_allowances = cursor.fetchone()[0] or 0
-                    
-                    # Calculate deductions
-                    cursor.execute("""
-                        SELECT SUM(CASE 
-                            WHEN sc.is_percentage = 1 THEN ? * (sc.percentage / 100)
-                            ELSE COALESCE(esc.value, sc.value)
-                        END) as total_deductions
-                        FROM salary_components sc
-                        LEFT JOIN employee_salary_components esc ON 
-                            sc.id = esc.component_id AND 
-                            esc.employee_id = ? AND 
-                            esc.is_active = 1
-                        WHERE sc.type = 'deduction' AND sc.is_active = 1
-                    """, (basic_salary, emp_id))
-                    
-                    total_deductions = cursor.fetchone()[0] or 0
-                    
-                    # Calculate net salary
-                    net_salary = basic_salary + total_allowances - total_deductions
-                    
-                    # Insert payroll entry
-                    cursor.execute("""
-                        INSERT INTO payroll_entries (
-                            payroll_period_id, employee_id, basic_salary,
-                            total_allowances, total_deductions, net_salary,
-                            payment_status
-                        ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
-                    """, (period_id, emp_id, basic_salary, total_allowances,
-                          total_deductions, net_salary))
-                    
-                    entry_id = cursor.lastrowid
-                    
-                    # Insert component details
-                    cursor.execute("""
-                        INSERT INTO payroll_entry_details (
-                            payroll_entry_id, component_id, amount, type
-                        )
-                        SELECT 
-                            ?, sc.id,
-                            CASE 
-                                WHEN sc.is_percentage = 1 THEN ? * (sc.percentage / 100)
-                                ELSE COALESCE(esc.value, sc.value)
-                            END,
-                            sc.type
-                        FROM salary_components sc
-                        LEFT JOIN employee_salary_components esc ON 
-                            sc.id = esc.component_id AND 
-                            esc.employee_id = ? AND 
-                            esc.is_active = 1
-                        WHERE sc.is_active = 1
-                    """, (entry_id, basic_salary, emp_id))
-                
-                # Update period totals
+            entries = []
+
+            for (employee_id,) in employees:
+                # Get employee salary details
+                success, salary_info = self.employee_details.get_employee_details(employee_id)
+                if not success:
+                    continue
+
+                basic_salary = salary_info['basic_salary']
+                total_allowances = sum(
+                    comp['value'] if not comp['is_percentage']
+                    else basic_salary * comp['percentage'] / 100
+                    for comp in salary_info['salary_components']
+                    if comp['type'] == 'allowance'
+                )
+
+                total_deductions = sum(
+                    comp['value'] if not comp['is_percentage']
+                    else basic_salary * comp['percentage'] / 100
+                    for comp in salary_info['salary_components']
+                    if comp['type'] == 'deduction'
+                )
+
+                # Calculate working days
+                working_days = self._calculate_working_days(
+                    employee_id, 
+                    start_date, 
+                    end_date
+                )
+
+                # Apply any adjustments effective in this period
+                adjustments = [
+                    adj for adj in salary_info['salary_adjustments']
+                    if (
+                        adj['status'] == 'approved' and
+                        adj['effective_date'] <= end_date and
+                        (not adj['end_date'] or adj['end_date'] >= start_date)
+                    )
+                ]
+
+                total_adjustments = sum(adj['amount'] for adj in adjustments)
+
+                # Calculate net salary
+                net_salary = (
+                    basic_salary + 
+                    total_allowances - 
+                    total_deductions +
+                    total_adjustments
+                )
+
+                # Prorate salary if needed
+                if working_days < self._get_period_working_days(period_year, period_month):
+                    net_salary = (net_salary / self._get_period_working_days(period_year, period_month)) * working_days
+
+                # Insert payroll entry
                 cursor.execute("""
-                    UPDATE payroll_periods SET
-                        total_amount = (
-                            SELECT SUM(net_salary) 
-                            FROM payroll_entries 
-                            WHERE payroll_period_id = ?
-                        ),
-                        total_employees = (
-                            SELECT COUNT(*) 
-                            FROM payroll_entries 
-                            WHERE payroll_period_id = ?
-                        ),
-                        status = 'processing'
-                    WHERE id = ?
-                """, (period_id, period_id, period_id))
-                
-                conn.commit()
-                return True, "Payroll generated successfully"
-                
-            except Exception as e:
-                cursor.execute("ROLLBACK")
-                raise e
-                
+                    INSERT INTO payroll_entries (
+                        payroll_period_id, employee_id,
+                        basic_salary, total_allowances,
+                        total_deductions, total_adjustments,
+                        working_days, net_salary,
+                        payment_status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+                """, (
+                    period_id, employee_id,
+                    basic_salary, total_allowances,
+                    total_deductions, total_adjustments,
+                    working_days, net_salary
+                ))
+
+                entry_id = cursor.lastrowid
+
+                # Add payroll components
+                for comp in salary_info['salary_components']:
+                    value = (
+                        comp['value'] if not comp['is_percentage']
+                        else basic_salary * comp['percentage'] / 100
+                    )
+
+                    cursor.execute("""
+                        INSERT INTO payroll_entry_components (
+                            entry_id, component_id,
+                            amount, created_at
+                        ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (entry_id, comp['id'], value))
+
+                entries.append({
+                    'id': entry_id,
+                    'employee_id': employee_id,
+                    'basic_salary': basic_salary,
+                    'total_allowances': total_allowances,
+                    'total_deductions': total_deductions,
+                    'total_adjustments': total_adjustments,
+                    'working_days': working_days,
+                    'net_salary': net_salary
+                })
+
+            conn.commit()
+            return True, entries
+
         except Exception as e:
+            conn.rollback()
             return False, str(e)
         finally:
             conn.close()
@@ -419,16 +402,25 @@ class PayrollController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
-            # Check if period exists and is in processing state
+            # Check if period exists and is in draft state
             cursor.execute("""
-                SELECT status FROM payroll_periods WHERE id = ?
-            """, (period_id,))
+                SELECT status, 
+                       (SELECT COUNT(*) FROM payroll_entries WHERE payroll_period_id = ?) as entry_count
+                FROM payroll_periods 
+                WHERE id = ?
+            """, (period_id, period_id))
             
-            period = cursor.fetchone()
-            if not period:
+            result = cursor.fetchone()
+            if not result:
                 return False, "فترة الرواتب غير موجودة"
-            if period[0] != 'processing':
+                
+            status, entry_count = result
+            
+            if status != 'draft':
                 return False, "لا يمكن اعتماد فترة الرواتب في هذه الحالة"
+                
+            if entry_count == 0:
+                return False, "لا يمكن اعتماد فترة رواتب فارغة. يرجى إضافة موظفين أولاً"
             
             # Update period status
             cursor.execute("""
@@ -439,6 +431,14 @@ class PayrollController(QObject):
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (approved_by, period_id))
+            
+            # Update all entries to approved status
+            cursor.execute("""
+                UPDATE payroll_entries 
+                SET payment_status = 'approved',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE payroll_period_id = ?
+            """, (period_id,))
             
             conn.commit()
             return True, "تم اعتماد كشف الرواتب بنجاح"
@@ -1098,18 +1098,27 @@ class PayrollController(QObject):
             if period[0] not in ['draft', 'processing']:
                 return False, "لا يمكن إضافة موظفين لفترة رواتب معتمدة"
             
-            # Get list of employees already in this period
+            # Get list of employees already in this period with their names
             cursor.execute("""
-                SELECT employee_id FROM payroll_entries 
-                WHERE payroll_period_id = ?
+                SELECT pe.employee_id, e.name 
+                FROM payroll_entries pe
+                JOIN employees e ON e.id = pe.employee_id
+                WHERE pe.payroll_period_id = ?
             """, (period_id,))
-            existing_employees = {row[0] for row in cursor.fetchall()}
+            existing_employees = {row[0]: row[1] for row in cursor.fetchall()}
             
             # Filter out employees that are already in the payroll
-            new_employees = [emp_id for emp_id in employee_ids if emp_id not in existing_employees]
+            new_employees = []
+            existing_names = []
+            for emp_id in employee_ids:
+                if emp_id in existing_employees:
+                    existing_names.append(existing_employees[emp_id])
+                else:
+                    new_employees.append(emp_id)
             
             if not new_employees:
-                return False, "جميع الموظفين المحددين موجودين بالفعل في كشف الرواتب"
+                existing_str = "، ".join(existing_names)
+                return False, f"الموظفين التاليين موجودين بالفعل في كشف الرواتب: {existing_str}"
             
             # Add new employees
             for emp_id in new_employees:
@@ -1301,5 +1310,284 @@ class PayrollController(QObject):
             
         except Exception as e:
             return False, str(e)
+        finally:
+            conn.close()
+
+    def update_payroll_entry(
+        self, 
+        entry_id: int,
+        adjustments: Dict[str, float],
+        reason: str,
+        updated_by: int
+    ) -> Tuple[bool, str]:
+        """Update a payroll entry with adjustments"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            # Get entry details
+            cursor.execute("""
+                SELECT 
+                    pe.employee_id,
+                    pe.basic_salary,
+                    pe.total_allowances,
+                    pe.total_deductions,
+                    pe.total_adjustments,
+                    pe.net_salary,
+                    pp.period_year,
+                    pp.period_month
+                FROM payroll_entries pe
+                JOIN payroll_periods pp ON pe.payroll_period_id = pp.id
+                WHERE pe.id = ?
+            """, (entry_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                return False, "سجل الراتب غير موجود"
+
+            (
+                employee_id, basic_salary, total_allowances,
+                total_deductions, total_adjustments, net_salary,
+                period_year, period_month
+            ) = row
+
+            # Calculate new totals
+            new_basic = adjustments.get('basic_salary', basic_salary)
+            new_allowances = adjustments.get('total_allowances', total_allowances)
+            new_deductions = adjustments.get('total_deductions', total_deductions)
+            new_adjustments = adjustments.get('total_adjustments', total_adjustments)
+
+            new_net = (
+                new_basic +
+                new_allowances -
+                new_deductions +
+                new_adjustments
+            )
+
+            # Update entry
+            cursor.execute("""
+                UPDATE payroll_entries SET
+                    basic_salary = ?,
+                    total_allowances = ?,
+                    total_deductions = ?,
+                    total_adjustments = ?,
+                    net_salary = ?,
+                    updated_at = CURRENT_TIMESTAMP,
+                    updated_by = ?
+                WHERE id = ?
+            """, (
+                new_basic, new_allowances,
+                new_deductions, new_adjustments,
+                new_net, updated_by, entry_id
+            ))
+
+            # Log the adjustment
+            cursor.execute("""
+                INSERT INTO payroll_adjustments (
+                    entry_id, previous_amount,
+                    adjusted_amount, reason,
+                    created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                entry_id, net_salary,
+                new_net, reason,
+                updated_by
+            ))
+
+            # If this affects basic salary, create a salary adjustment record
+            if new_basic != basic_salary:
+                self.employee_details.update_employee_salary(
+                    employee_id=employee_id,
+                    basic_salary=new_basic,
+                    effective_date=date(period_year, period_month, 1),
+                    reason=reason,
+                    adjustment_type='increase' if new_basic > basic_salary else 'decrease',
+                    created_by=updated_by
+                )
+
+            conn.commit()
+            return True, None
+
+        except Exception as e:
+            conn.rollback()
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def _calculate_working_days(
+        self, 
+        employee_id: int,
+        start_date: date,
+        end_date: date
+    ) -> int:
+        """Calculate actual working days in the period"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            # Get total days in period
+            from datetime import datetime
+            start = datetime.strptime(start_date, '%Y-%m-%d') if isinstance(start_date, str) else start_date
+            end = datetime.strptime(end_date, '%Y-%m-%d') if isinstance(end_date, str) else end_date
+            total_days = (end - start).days + 1
+            
+            # Get weekends and holidays
+            weekends = self._count_weekends(start, end)
+            
+            # Get leaves for this employee in this period
+            cursor.execute("""
+                SELECT SUM(total_days) FROM leaves 
+                WHERE employee_id = ? 
+                AND status = 'approved'
+                AND (
+                    (start_date BETWEEN ? AND ?) OR
+                    (end_date BETWEEN ? AND ?) OR
+                    (start_date <= ? AND end_date >= ?)
+                )
+            """, (
+                employee_id, 
+                start_date, end_date,
+                start_date, end_date,
+                start_date, end_date
+            ))
+            
+            leaves = cursor.fetchone()[0] or 0
+            
+            # Get absences
+            cursor.execute("""
+                SELECT COUNT(*) FROM attendance 
+                WHERE employee_id = ? 
+                AND date BETWEEN ? AND ?
+                AND status = 'absent'
+            """, (employee_id, start_date, end_date))
+            
+            absences = cursor.fetchone()[0] or 0
+            
+            # Calculate working days
+            working_days = total_days - weekends - leaves - absences
+            
+            return working_days
+            
+        except Exception as e:
+            print(f"Error calculating working days: {e}")
+            # Default to full month if there's an error
+            return self._get_period_working_days(
+                start.year if hasattr(start, 'year') else int(start_date.split('-')[0]),
+                start.month if hasattr(start, 'month') else int(start_date.split('-')[1])
+            )
+        finally:
+            conn.close()
+            
+    def _count_weekends(self, start_date, end_date):
+        """Count weekend days between two dates"""
+        from datetime import timedelta
+        
+        # Define weekend days (5=Saturday, 6=Sunday in Python's datetime)
+        weekend_days = [5, 6]  # Adjust based on your country's weekend days
+        
+        count = 0
+        current_date = start_date
+        while current_date <= end_date:
+            if current_date.weekday() in weekend_days:
+                count += 1
+            current_date += timedelta(days=1)
+            
+        return count
+        
+    def _get_period_working_days(self, year, month):
+        """Get standard working days in a month (excluding weekends)"""
+        import calendar
+        from datetime import date, timedelta
+        
+        # Get the first and last day of the month
+        _, last_day = calendar.monthrange(year, month)
+        start_date = date(year, month, 1)
+        end_date = date(year, month, last_day)
+        
+        # Count total days excluding weekends
+        return (last_day - self._count_weekends(start_date, end_date))
+        
+    def get_payroll_periods(self):
+        """Get all payroll periods ordered by year and month"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    id,
+                    period_year,
+                    period_month,
+                    start_date,
+                    end_date,
+                    status,
+                    created_at
+                FROM payroll_periods
+                ORDER BY period_year DESC, period_month DESC
+            """)
+            
+            periods = []
+            for row in cursor.fetchall():
+                period = {
+                    'id': row[0],
+                    'year': row[1],
+                    'month': row[2],
+                    'start_date': row[3],
+                    'end_date': row[4],
+                    'status': row[5],
+                    'created_at': row[6]
+                }
+                periods.append(period)
+            
+            return True, periods
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def get_recent_entries(self, limit=5):
+        """Get the most recent payroll entries across all periods
+        
+        Args:
+            limit: Maximum number of entries to return
+            
+        Returns:
+            List of recent payroll entries with employee names
+        """
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    pe.id,
+                    e.name as employee_name,
+                    pe.basic_salary,
+                    pe.net_salary,
+                    pe.payment_date,
+                    pe.payment_status
+                FROM payroll_entries pe
+                JOIN employees e ON pe.employee_id = e.id
+                ORDER BY pe.payment_date DESC
+                LIMIT ?
+            """, (limit,))
+            
+            entries = []
+            for row in cursor.fetchall():
+                entries.append({
+                    'id': row[0],
+                    'employee_name': row[1],
+                    'gross_salary': row[2],  # Using basic_salary as gross_salary
+                    'net_salary': row[3],
+                    'payment_date': row[4] if row[4] else '',
+                    'payment_status': row[5] if row[5] else 'pending'
+                })
+                
+            return entries
+            
+        except Exception as e:
+            print(f"Error getting recent payroll entries: {str(e)}")
+            return []
         finally:
             conn.close()

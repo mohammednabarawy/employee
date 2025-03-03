@@ -1,9 +1,19 @@
 import pandas as pd
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.lib.pagesizes import letter
 from datetime import datetime
+import jinja2
+
+# Make pdfkit optional to avoid breaking the application if not installed
+try:
+    import pdfkit
+    PDFKIT_AVAILABLE = True
+except ImportError:
+    PDFKIT_AVAILABLE = False
+    print("Warning: pdfkit not available. PDF template export will be disabled.")
 
 class ExportUtils:
     @staticmethod
@@ -132,6 +142,66 @@ class ExportUtils:
             elements.append(table)
 
             # Build PDF
+            doc.build(elements)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def generate_professional_report(df, title, output_path):
+        """Generate PDF report with company branding"""
+        try:
+            doc = SimpleDocTemplate(output_path, pagesize=letter)
+            styles = getSampleStyleSheet()
+            elements = []
+
+            # Header
+            header = Paragraph(
+                """<font size=14 color=#3498db><b>Employee Management Pro</b></font><br/>
+                <font size=10>Professional HR Solutions</font>""",
+                styles['Normal']
+            )
+            elements.append(header)
+            elements.append(Spacer(1, 0.25*inch))
+
+            # Report title
+            title = Paragraph(f"<b>{title}</b>", styles['Title'])
+            elements.append(title)
+            elements.append(Spacer(1, 0.25*inch))
+
+            # Report metadata
+            meta = Paragraph(
+                f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                styles['Italic']
+            )
+            elements.append(meta)
+            elements.append(Spacer(1, 0.5*inch))
+
+            # Convert DataFrame to ReportLab Table
+            table_data = [df.columns.tolist()] + df.values.tolist()
+            table = Table(table_data)
+            
+            # Add style
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2c3e50')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,0), 10),
+                ('BOTTOMPADDING', (0,0), (-1,0), 12),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#ecf0f1')),
+                ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#bdc3c7'))
+            ]))
+            elements.append(table)
+
+            # Footer
+            footer = Paragraph(
+                "<font size=8>Confidential - For internal use only</font>",
+                styles['Normal']
+            )
+            elements.append(Spacer(1, 0.5*inch))
+            elements.append(footer)
+
             doc.build(elements)
             return True, None
         except Exception as e:

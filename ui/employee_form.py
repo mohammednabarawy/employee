@@ -81,7 +81,8 @@ class EmployeeForm(QDialog):
         layout.addLayout(nav_layout)
         
         # Header with photo
-        header_layout = QHBoxLayout()
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
         
         # Photo section
         photo_layout = QVBoxLayout()
@@ -91,13 +92,13 @@ class EmployeeForm(QDialog):
         photo_layout.addWidget(self.photo_label)
         
         upload_btn = QPushButton("تحميل صورة")
-        upload_btn.clicked.connect(self.upload_photo)
+        upload_btn.clicked.connect(self.select_photo)
         photo_layout.addWidget(upload_btn)
         
         header_layout.addLayout(photo_layout)
         header_layout.addStretch()
         
-        layout.addLayout(header_layout)
+        layout.addWidget(header_widget)
         
         # Create tab widget
         tab_widget = QTabWidget()
@@ -134,9 +135,24 @@ class EmployeeForm(QDialog):
         
         # Gender
         self.gender_combo = QComboBox()
-        self.gender_combo.addItems(["ذكر", "أنثى"])
+        self.gender_combo.addItems(['male', 'female'])  # Database values
+        self.gender_display = {
+            'male': 'ذكر',
+            'female': 'أنثى'
+        }
+        # Set display text while keeping the data role as the database value
+        for i in range(self.gender_combo.count()):
+            db_value = self.gender_combo.itemText(i)
+            self.gender_combo.setItemText(i, self.gender_display[db_value])
+            self.gender_combo.setItemData(i, db_value)  # Store DB value
         self.gender_combo.setToolTip("اختر الجنس")
         layout.addRow("الجنس:", self.gender_combo)
+        
+        # Marital Status
+        self.marital_status_combo = QComboBox()
+        self.marital_status_combo.addItems(["أعزب", "متزوج", "مطلق", "أرمل"])
+        self.marital_status_combo.setToolTip("اختر الحالة الاجتماعية")
+        layout.addRow("الحالة الاجتماعية:", self.marital_status_combo)
         
         # Nationality
         self.nationality_edit = QComboBox()
@@ -249,12 +265,10 @@ class EmployeeForm(QDialog):
         layout.addRow("نوع الراتب:", self.salary_type_combo)
         
         # Basic Salary
-        self.basic_salary_spin = QDoubleSpinBox()
-        self.basic_salary_spin.setRange(0, 1000000)
-        self.basic_salary_spin.setDecimals(2)
-        self.basic_salary_spin.setSingleStep(100)
-        self.basic_salary_spin.setToolTip("أدخل قيمة الراتب الأساسي")
-        layout.addRow("الراتب الأساسي:", self.basic_salary_spin)
+        self.basic_salary_edit = QLineEdit()
+        self.basic_salary_edit.setPlaceholderText("0.00")
+        self.basic_salary_edit.setToolTip("أدخل قيمة الراتب الأساسي")
+        layout.addRow("الراتب الأساسي:", self.basic_salary_edit)
         
         # Currency
         self.currency_combo = QComboBox()
@@ -264,6 +278,18 @@ class EmployeeForm(QDialog):
         ])
         self.currency_combo.setToolTip("اختر عملة الراتب")
         layout.addRow("العملة:", self.currency_combo)
+        
+        # Working Hours
+        self.working_hours_edit = QLineEdit()
+        self.working_hours_edit.setPlaceholderText("40")
+        self.working_hours_edit.setToolTip("أدخل عدد ساعات العمل الأسبوعية")
+        layout.addRow("ساعات العمل الأسبوعية:", self.working_hours_edit)
+        
+        # Bank Name
+        self.bank_name_edit = QLineEdit()
+        self.bank_name_edit.setPlaceholderText("اسم البنك")
+        self.bank_name_edit.setToolTip("أدخل اسم البنك")
+        layout.addRow("اسم البنك:", self.bank_name_edit)
         
         tab.setLayout(layout)
         return tab
@@ -368,6 +394,7 @@ class EmployeeForm(QDialog):
         self.name_ar_edit.clear()
         self.dob_edit.setDate(QDate.currentDate())
         self.gender_combo.setCurrentIndex(0)
+        self.marital_status_combo.setCurrentIndex(0)
         self.nationality_edit.setCurrentIndex(0)
         self.national_id_edit.clear()
         self.passport_edit.clear()
@@ -381,8 +408,10 @@ class EmployeeForm(QDialog):
         self.contract_type_combo.setCurrentIndex(0)
         self.bank_account_edit.clear()
         self.salary_type_combo.setCurrentIndex(0)
-        self.basic_salary_spin.setValue(0)
+        self.basic_salary_edit.clear()
         self.currency_combo.setCurrentIndex(0)
+        self.working_hours_edit.clear()
+        self.bank_name_edit.clear()
         self.photo_label.clear()
         self.photo_path = None
 
@@ -447,25 +476,124 @@ class EmployeeForm(QDialog):
             self.clear_form()
             self.update_navigation_buttons()
 
-    def upload_photo(self):
+    def select_photo(self):
+        """Open file dialog to select employee photo"""
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             "اختر صورة",
             "",
-            "Image files (*.jpg *.jpeg *.png *.bmp)"
+            "Image Files (*.png *.jpg *.jpeg *.bmp)"
         )
-        
         if file_name:
+            # Store the photo path for later use
             self.photo_path = file_name
+            # Display the selected photo
             pixmap = QPixmap(file_name)
-            self.photo_label.setPixmap(
-                pixmap.scaled(
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(
                     self.photo_label.size(),
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation
                 )
-            )
+                self.photo_label.setPixmap(scaled_pixmap)
 
+    def get_form_data(self):
+        """Get all form data as a dictionary"""
+        data = {
+            'name': self.name_edit.text(),
+            'name_ar': self.name_ar_edit.text(),
+            'department_id': self.department_combo.currentData(),
+            'position_id': self.position_combo.currentData(),
+            'basic_salary': float(self.basic_salary_edit.text() or 0),
+            'hire_date': self.hire_date_edit.date().toString('yyyy-MM-dd'),
+            'birth_date': self.dob_edit.date().toString('yyyy-MM-dd'),
+            'gender': self.gender_combo.currentData(),
+            'marital_status': self.marital_status_combo.currentText(),
+            'national_id': self.national_id_edit.text(),
+            'phone': self.phone_edit.text(),
+            'email': self.email_edit.text(),
+            'address': self.address_edit.toPlainText(),
+            'bank_account': self.bank_account_edit.text(),
+            'bank_name': self.bank_name_edit.text(),
+            'is_active': 1
+        }
+        
+        # Add photo path if a new photo was selected
+        if hasattr(self, 'photo_path'):
+            data['photo_path'] = self.photo_path
+            
+        return data
+
+    def load_employee(self, employee_data):
+        """Load employee data into the form"""
+        if not employee_data:
+            return
+
+        # Basic Information
+        self.name_edit.setText(employee_data.get('name', ''))
+        self.name_ar_edit.setText(employee_data.get('name_ar', ''))
+        self.email_edit.setText(employee_data.get('email', ''))
+        self.phone_edit.setText(employee_data.get('phone', ''))
+        self.national_id_edit.setText(employee_data.get('national_id', ''))
+        self.address_edit.setPlainText(employee_data.get('address', ''))
+        
+        # Display photo if available
+        if 'photo_pixmap' in employee_data and employee_data['photo_pixmap']:
+            scaled_pixmap = employee_data['photo_pixmap'].scaled(
+                self.photo_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+            self.photo_label.setPixmap(scaled_pixmap)
+        else:
+            self.photo_label.clear()
+            
+        # Clear the stored photo path when loading new employee
+        if hasattr(self, 'photo_path'):
+            del self.photo_path
+            
+        # Dates
+        if employee_data.get('birth_date'):
+            self.dob_edit.setDate(QDate.fromString(employee_data['birth_date'], 'yyyy-MM-dd'))
+        else:
+            self.dob_edit.setDate(QDate.currentDate())
+            
+        if employee_data.get('hire_date'):
+            self.hire_date_edit.setDate(QDate.fromString(employee_data['hire_date'], 'yyyy-MM-dd'))
+        else:
+            self.hire_date_edit.setDate(QDate.currentDate())
+            
+        # Gender - find by database value
+        gender = employee_data.get('gender', 'male')
+        index = self.gender_combo.findData(gender)
+        if index >= 0:
+            self.gender_combo.setCurrentIndex(index)
+            
+        # Marital Status
+        marital_status = employee_data.get('marital_status', 'أعزب')
+        index = self.marital_status_combo.findText(marital_status)
+        if index >= 0:
+            self.marital_status_combo.setCurrentIndex(index)
+            
+        # Department
+        department_id = employee_data.get('department_id')
+        if department_id:
+            index = self.department_combo.findData(department_id)
+            if index >= 0:
+                self.department_combo.setCurrentIndex(index)
+                
+        # Position
+        position_id = employee_data.get('position_id')
+        if position_id:
+            index = self.position_combo.findData(position_id)
+            if index >= 0:
+                self.position_combo.setCurrentIndex(index)
+            
+        # Bank Account and Salary
+        self.bank_account_edit.setText(employee_data.get('bank_account', ''))
+        self.bank_name_edit.setText(employee_data.get('bank_name', ''))
+        self.basic_salary_edit.setText(str(employee_data.get('basic_salary', 0) or 0))
+        
     def save_employee(self):
         data = self.get_form_data()
         
@@ -510,131 +638,6 @@ class EmployeeForm(QDialog):
                     self.load_current_employee()
             else:
                 QMessageBox.warning(self, "خطأ", f"فشل في إضافة الموظف: {error}")
-
-    def get_form_data(self):
-        """Get all form data as a dictionary."""
-        return {
-            'name': self.name_edit.text().strip(),
-            'name_ar': self.name_ar_edit.text().strip(),
-            'dob': self.dob_edit.date().toString('yyyy-MM-dd'),
-            'gender': self.gender_combo.currentText().strip(),
-            'nationality': self.nationality_edit.currentText().strip(),
-            'national_id': self.national_id_edit.text().strip(),
-            'passport_number': self.passport_edit.text().strip(),
-            'phone_primary': self.phone_edit.text().strip(),
-            'phone_secondary': self.phone2_edit.text().strip(),
-            'email': self.email_edit.text().strip(),
-            'address': self.address_edit.toPlainText().strip(),
-            'department_name': self.department_combo.currentText().strip(),
-            'position_title': self.position_combo.currentText().strip(),
-            'hire_date': self.hire_date_edit.date().toString('yyyy-MM-dd'),
-            'contract_type': self.contract_type_combo.currentText().strip(),
-            'bank_account': self.bank_account_edit.text().strip(),
-            'salary_type': self.salary_type_combo.currentText().strip(),
-            'basic_salary': self.basic_salary_spin.value(),
-            'salary_currency': self.currency_combo.currentText().strip(),
-            'photo_path': self.photo_path,
-            'employee_status': 'نشط'  # Active status for new employees
-        }
-
-    def load_employee(self, employee_data):
-        """Load employee data into the form"""
-        if not employee_data:
-            return
-            
-        # Set employee ID
-        self.employee_id = employee_data.get('id')
-            
-        # Load basic info
-        self.name_edit.setText(employee_data.get('name', ''))
-        self.name_ar_edit.setText(employee_data.get('name_ar', ''))
-        self.email_edit.setText(employee_data.get('email', ''))
-        self.phone_edit.setText(employee_data.get('phone_primary', ''))
-        self.phone2_edit.setText(employee_data.get('phone_secondary', ''))
-        self.national_id_edit.setText(employee_data.get('national_id', ''))
-        self.passport_edit.setText(employee_data.get('passport_number', ''))
-        self.address_edit.setPlainText(employee_data.get('address', ''))
-        
-        # Load photo if available
-        if 'photo_pixmap' in employee_data:
-            self.photo_label.setPixmap(
-                employee_data['photo_pixmap'].scaled(
-                    self.photo_label.size(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation
-                )
-            )
-            self.photo_path = None  # Clear photo path since we're using DB photo
-        else:
-            self.clear_photo()
-        
-        # Load dates with proper default values
-        if employee_data.get('dob'):
-            self.dob_edit.setDate(QDate.fromString(employee_data['dob'], 'yyyy-MM-dd'))
-        else:
-            self.dob_edit.setDate(QDate.currentDate())
-            
-        if employee_data.get('hire_date'):
-            self.hire_date_edit.setDate(QDate.fromString(employee_data['hire_date'], 'yyyy-MM-dd'))
-        else:
-            self.hire_date_edit.setDate(QDate.currentDate())
-        
-        # Load combo box selections with proper defaults
-        # Gender
-        gender = employee_data.get('gender', 'ذكر')
-        index = self.gender_combo.findText(gender)
-        if index >= 0:
-            self.gender_combo.setCurrentIndex(index)
-            
-        # Nationality
-        nationality = employee_data.get('nationality', 'سعودي')
-        index = self.nationality_edit.findText(nationality)
-        if index >= 0:
-            self.nationality_edit.setCurrentIndex(index)
-        else:
-            self.nationality_edit.setCurrentText(nationality)
-            
-        # Department
-        department = employee_data.get('department_name', 'الإدارة العامة')
-        index = self.department_combo.findText(department)
-        if index >= 0:
-            self.department_combo.setCurrentIndex(index)
-        else:
-            self.department_combo.setCurrentText(department)
-            
-        # Position
-        position = employee_data.get('position_title', 'موظف')
-        index = self.position_combo.findText(position)
-        if index >= 0:
-            self.position_combo.setCurrentIndex(index)
-        else:
-            self.position_combo.setCurrentText(position)
-            
-        # Contract Type
-        contract = employee_data.get('contract_type', 'دوام كامل')
-        index = self.contract_type_combo.findText(contract)
-        if index >= 0:
-            self.contract_type_combo.setCurrentIndex(index)
-            
-        # Salary Type
-        salary_type = employee_data.get('salary_type', 'شهري')
-        index = self.salary_type_combo.findText(salary_type)
-        if index >= 0:
-            self.salary_type_combo.setCurrentIndex(index)
-            
-        # Currency
-        currency = employee_data.get('salary_currency', 'ريال سعودي')
-        index = self.currency_combo.findText(currency)
-        if index >= 0:
-            self.currency_combo.setCurrentIndex(index)
-            
-        # Bank Account and Salary
-        self.bank_account_edit.setText(employee_data.get('bank_account', ''))
-        self.basic_salary_spin.setValue(float(employee_data.get('basic_salary', 0) or 0))
-        
-    def clear_photo(self):
-        self.photo_label.clear()
-        self.photo_path = None
 
     def apply_filters(self):
         """Apply search and filter criteria to employees list"""

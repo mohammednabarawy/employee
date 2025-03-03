@@ -149,30 +149,22 @@ class ValidationUtils:
             return False, "صيغة البريد الإلكتروني غير صحيحة"
         
         # Validate phone if provided
-        if data.get('phone_primary') and not ValidationUtils.validate_phone(data['phone_primary']):
+        if data.get('phone') and not ValidationUtils.validate_phone(data['phone']):
             return False, "صيغة رقم الهاتف غير صحيحة"
-        
-        # Validate secondary phone if provided
-        if data.get('phone_secondary') and not ValidationUtils.validate_phone(data['phone_secondary']):
-            return False, "صيغة رقم الهاتف البديل غير صحيحة"
         
         # Validate national ID if provided
         if data.get('national_id') and not ValidationUtils.validate_national_id(data['national_id']):
             return False, "صيغة رقم الهوية غير صحيحة"
         
-        # Validate passport if provided
-        if data.get('passport_number') and not ValidationUtils.validate_passport(data['passport_number']):
-            return False, "صيغة رقم جواز السفر غير صحيحة"
-        
         # Validate gender if provided
         if data.get('gender'):
-            valid_genders = {'ذكر', 'أنثى', 'Male', 'Female', 'Other'}
+            valid_genders = {'male', 'female'}  # Match database constraints
             if data['gender'] not in valid_genders:
                 return False, "قيمة الجنس غير صحيحة"
         
         # Validate dates if provided
-        if data.get('dob'):
-            success, error = ValidationUtils.validate_date(data['dob'])
+        if data.get('birth_date'):
+            success, error = ValidationUtils.validate_date(data['birth_date'])
             if not success:
                 return False, f"تاريخ الميلاد: {error}"
         
@@ -180,10 +172,6 @@ class ValidationUtils:
             success, error = ValidationUtils.validate_date(data['hire_date'])
             if not success:
                 return False, f"تاريخ التعيين: {error}"
-        
-        # Validate salary type if provided
-        if data.get('salary_type') and not ValidationUtils.validate_salary_type(data['salary_type']):
-            return False, "نوع الراتب غير صحيح"
         
         # Validate salary if provided
         if data.get('basic_salary') is not None:
