@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QMessageBox, QFileDialog, QTabWidget, QWidget,
                              QLineEdit, QComboBox, QDateEdit, QDoubleSpinBox,
-                             QTextEdit, QFormLayout, QGroupBox)
+                             QTextEdit, QFormLayout, QGroupBox, QFrame)
 from PyQt5.QtCore import Qt, pyqtSignal, QDate
 from PyQt5.QtGui import QPixmap
 import os
@@ -85,16 +85,7 @@ class EmployeeForm(QDialog):
         header_layout = QHBoxLayout(header_widget)
         
         # Photo section
-        photo_layout = QVBoxLayout()
-        self.photo_label = QLabel()
-        self.photo_label.setFixedSize(150, 150)
-        self.photo_label.setStyleSheet("border: 1px solid #ccc;")
-        photo_layout.addWidget(self.photo_label)
-        
-        upload_btn = QPushButton("تحميل صورة")
-        upload_btn.clicked.connect(self.select_photo)
-        photo_layout.addWidget(upload_btn)
-        
+        photo_layout = self.setup_photo_section()
         header_layout.addLayout(photo_layout)
         header_layout.addStretch()
         
@@ -214,126 +205,230 @@ class EmployeeForm(QDialog):
         layout = QFormLayout()
         
         # Department
+        dept_layout = QHBoxLayout()
         self.department_combo = QComboBox()
-        self.department_combo.setEditable(True)
-        self.department_combo.addItems([
-            "الموارد البشرية", "المالية", "تقنية المعلومات", "المبيعات",
-            "التسويق", "خدمة العملاء", "الإدارة", "المشتريات", "المستودعات"
-        ])
-        self.department_combo.setToolTip("اختر القسم أو أدخل قسم جديد")
-        layout.addRow("القسم:", self.department_combo)
+        
+        # Load departments from database
+        success, departments = self.employee_controller.get_departments()
+        if success:
+            # Add departments to combo box
+            for dept in departments:
+                self.department_combo.addItem(dept['name'], dept['id'])
+            
+            # Set default value to first department if available
+            if departments and len(departments) > 0:
+                self.department_combo.setCurrentIndex(0)
+        
+        add_dept_btn = QPushButton("+")
+        add_dept_btn.setMaximumWidth(30)
+        add_dept_btn.clicked.connect(self.add_new_department)
+        
+        dept_layout.addWidget(self.department_combo)
+        dept_layout.addWidget(add_dept_btn)
+        
+        layout.addRow("القسم:", dept_layout)
         
         # Position
+        pos_layout = QHBoxLayout()
         self.position_combo = QComboBox()
-        self.position_combo.setEditable(True)
-        self.position_combo.addItems([
-            "مدير", "مشرف", "موظف", "محاسب", "مهندس", "فني",
-            "مندوب مبيعات", "سكرتير", "مدخل بيانات"
-        ])
-        self.position_combo.setToolTip("اختر المنصب أو أدخل منصب جديد")
-        layout.addRow("المنصب:", self.position_combo)
+        
+        # Load positions from database
+        success, positions = self.employee_controller.get_positions()
+        if success:
+            # Add positions to combo box
+            for pos in positions:
+                self.position_combo.addItem(pos['name'], pos['id'])
+            
+            # Set default value to first position if available
+            if positions and len(positions) > 0:
+                self.position_combo.setCurrentIndex(0)
+        
+        add_pos_btn = QPushButton("+")
+        add_pos_btn.setMaximumWidth(30)
+        add_pos_btn.clicked.connect(self.add_new_position)
+        
+        pos_layout.addWidget(self.position_combo)
+        pos_layout.addWidget(add_pos_btn)
+        
+        layout.addRow("المسمى الوظيفي:", pos_layout)
         
         # Hire Date
         self.hire_date_edit = QDateEdit()
         self.hire_date_edit.setCalendarPopup(True)
         self.hire_date_edit.setDate(QDate.currentDate())
-        self.hire_date_edit.setToolTip("اختر تاريخ التعيين من التقويم")
         layout.addRow("تاريخ التعيين:", self.hire_date_edit)
         
         # Contract Type
         self.contract_type_combo = QComboBox()
-        self.contract_type_combo.addItems([
-            "دوام كامل", "دوام جزئي", "عقد", "مؤقت",
-            "موسمي", "تجريبي", "عن بعد"
-        ])
-        self.contract_type_combo.setToolTip("اختر نوع العقد")
+        self.contract_type_combo.addItems(["دائم", "مؤقت", "متعاقد", "دوام جزئي"])
         layout.addRow("نوع العقد:", self.contract_type_combo)
-        
-        # Bank Account
-        self.bank_account_edit = QLineEdit()
-        self.bank_account_edit.setPlaceholderText("SA1234567890123456789012")
-        self.bank_account_edit.setToolTip("أدخل رقم الآيبان (IBAN) المكون من 24 رقم")
-        layout.addRow("رقم الحساب البنكي:", self.bank_account_edit)
         
         # Salary Type
         self.salary_type_combo = QComboBox()
-        self.salary_type_combo.addItems([
-            "شهري", "أسبوعي", "يومي", "بالساعة",
-            "بالمشروع", "بالعمولة"
-        ])
-        self.salary_type_combo.setToolTip("اختر نوع الراتب")
+        self.salary_type_combo.addItems(["شهري", "أسبوعي", "يومي", "بالساعة"])
         layout.addRow("نوع الراتب:", self.salary_type_combo)
         
         # Basic Salary
         self.basic_salary_edit = QLineEdit()
-        self.basic_salary_edit.setPlaceholderText("0.00")
-        self.basic_salary_edit.setToolTip("أدخل قيمة الراتب الأساسي")
+        self.basic_salary_edit.setPlaceholderText("أدخل الراتب الأساسي")
         layout.addRow("الراتب الأساسي:", self.basic_salary_edit)
         
         # Currency
         self.currency_combo = QComboBox()
-        self.currency_combo.addItems([
-            "ريال سعودي", "درهم إماراتي", "دينار كويتي", "دينار بحريني",
-            "ريال عماني", "ريال قطري", "جنيه مصري", "دولار أمريكي", "يورو"
-        ])
-        self.currency_combo.setToolTip("اختر عملة الراتب")
+        self.currency_combo.addItems(["ريال", "دولار", "يورو", "جنيه"])
         layout.addRow("العملة:", self.currency_combo)
         
         # Working Hours
         self.working_hours_edit = QLineEdit()
-        self.working_hours_edit.setPlaceholderText("40")
-        self.working_hours_edit.setToolTip("أدخل عدد ساعات العمل الأسبوعية")
-        layout.addRow("ساعات العمل الأسبوعية:", self.working_hours_edit)
+        self.working_hours_edit.setPlaceholderText("عدد ساعات العمل")
+        layout.addRow("ساعات العمل:", self.working_hours_edit)
+        
+        # Bank Account
+        self.bank_account_edit = QLineEdit()
+        self.bank_account_edit.setPlaceholderText("رقم الحساب البنكي")
+        layout.addRow("رقم الحساب:", self.bank_account_edit)
         
         # Bank Name
         self.bank_name_edit = QLineEdit()
         self.bank_name_edit.setPlaceholderText("اسم البنك")
-        self.bank_name_edit.setToolTip("أدخل اسم البنك")
         layout.addRow("اسم البنك:", self.bank_name_edit)
+        
+        # Employee Status
+        status_layout = QHBoxLayout()
+        self.status_label = QLabel("حالة الموظف:")
+        self.status_toggle = QPushButton("نشط")
+        self.status_toggle.setCheckable(True)
+        self.status_toggle.setChecked(True)
+        self.status_toggle.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border-radius: 4px;
+                padding: 5px 10px;
+            }
+            QPushButton:checked {
+                background-color: #e74c3c;
+            }
+        """)
+        self.status_toggle.clicked.connect(self.toggle_employee_status)
+        status_layout.addWidget(self.status_label)
+        status_layout.addWidget(self.status_toggle)
+        status_layout.addStretch()
+        
+        layout.addRow(status_layout)
         
         tab.setLayout(layout)
         return tab
-
+        
+    def toggle_employee_status(self):
+        """Toggle employee active status"""
+        if self.status_toggle.isChecked():
+            self.status_toggle.setText("نشط")
+            self.status_toggle.setStyleSheet("""
+                QPushButton {
+                    background-color: #27ae60;
+                    color: white;
+                    border-radius: 4px;
+                    padding: 5px 10px;
+                }
+                QPushButton:checked {
+                    background-color: #e74c3c;
+                }
+            """)
+        else:
+            self.status_toggle.setText("غير نشط")
+            self.status_toggle.setStyleSheet("""
+                QPushButton {
+                    background-color: #e74c3c;
+                    color: white;
+                    border-radius: 4px;
+                    padding: 5px 10px;
+                }
+                QPushButton:checked {
+                    background-color: #27ae60;
+                }
+            """)
+            
     def setup_navigation_buttons(self):
         """Setup navigation buttons."""
         nav_layout = QHBoxLayout()
         action_layout = QHBoxLayout()
         
-        # Employee counter label
-        self.employee_count_label = QLabel()
-        nav_layout.addWidget(self.employee_count_label)
-        
         # Navigation buttons
-        self.first_btn = QPushButton("الأول")
-        self.prev_btn = QPushButton("السابق")
-        self.next_btn = QPushButton("التالي")
-        self.last_btn = QPushButton("الأخير")
-        
+        self.first_btn = QPushButton("<<")
+        self.first_btn.setToolTip("الأول")
         self.first_btn.clicked.connect(self.go_to_first)
+        
+        self.prev_btn = QPushButton("<")
+        self.prev_btn.setToolTip("السابق")
         self.prev_btn.clicked.connect(self.go_to_previous)
+        
+        self.next_btn = QPushButton(">")
+        self.next_btn.setToolTip("التالي")
         self.next_btn.clicked.connect(self.go_to_next)
+        
+        self.last_btn = QPushButton(">>")
+        self.last_btn.setToolTip("الأخير")
         self.last_btn.clicked.connect(self.go_to_last)
+        
+        # Navigation counter
+        self.nav_counter = QLabel("0/0")
         
         nav_layout.addWidget(self.first_btn)
         nav_layout.addWidget(self.prev_btn)
+        nav_layout.addWidget(self.nav_counter)
         nav_layout.addWidget(self.next_btn)
         nav_layout.addWidget(self.last_btn)
+        nav_layout.addStretch()
         
         # Action buttons
-        self.new_btn = QPushButton("موظف جديد")
-        self.save_btn = QPushButton("حفظ")
-        self.delete_btn = QPushButton("حذف")
-        
+        self.new_btn = QPushButton("جديد")
+        self.new_btn.setToolTip("إضافة موظف جديد")
         self.new_btn.clicked.connect(self.new_employee)
+        
+        self.save_btn = QPushButton("حفظ")
+        self.save_btn.setToolTip("حفظ بيانات الموظف")
         self.save_btn.clicked.connect(self.save_employee)
+        
+        self.delete_btn = QPushButton("حذف")
+        self.delete_btn.setToolTip("حذف الموظف الحالي")
         self.delete_btn.clicked.connect(self.delete_employee)
+        
+        self.export_btn = QPushButton("تصدير")
+        self.export_btn.setToolTip("تصدير بيانات الموظفين إلى ملف CSV")
+        self.export_btn.clicked.connect(self.export_employees)
         
         action_layout.addWidget(self.new_btn)
         action_layout.addWidget(self.save_btn)
         action_layout.addWidget(self.delete_btn)
+        action_layout.addWidget(self.export_btn)
         
         return nav_layout, action_layout
-
+        
+    def export_employees(self):
+        """Export employees data to CSV file"""
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            "تصدير بيانات الموظفين",
+            "employees.csv",
+            "CSV Files (*.csv)"
+        )
+        
+        if file_name:
+            success, result = self.employee_controller.export_employees_to_csv(file_name)
+            if success:
+                QMessageBox.information(
+                    self,
+                    "تم التصدير بنجاح",
+                    f"تم تصدير بيانات الموظفين بنجاح إلى:\n{result}"
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "خطأ في التصدير",
+                    f"حدث خطأ أثناء تصدير البيانات:\n{result}"
+                )
+                
     def update_navigation_buttons(self):
         """Update the state of navigation buttons based on current position"""
         has_employees = len(self.filtered_employees) > 0
@@ -346,11 +441,11 @@ class EmployeeForm(QDialog):
         self.delete_btn.setEnabled(has_employees and self.employee_id is not None)
         
         if has_employees and current_index >= 0:
-            self.employee_count_label.setText(
-                f"موظف {current_index + 1} من {len(self.filtered_employees)} (الإجمالي: {len(self.employees)})"
+            self.nav_counter.setText(
+                f"{current_index + 1}/{len(self.filtered_employees)}"
             )
         else:
-            self.employee_count_label.setText("لا يوجد موظفين")
+            self.nav_counter.setText("0/0")
 
     def go_to_first(self):
         if self.filtered_employees:
@@ -515,12 +610,12 @@ class EmployeeForm(QDialog):
             'address': self.address_edit.toPlainText(),
             'bank_account': self.bank_account_edit.text(),
             'bank_name': self.bank_name_edit.text(),
-            'is_active': 1
+            'is_active': 1 if self.status_toggle.isChecked() else 0
         }
         
-        # Add photo path if a new photo was selected
-        if hasattr(self, 'photo_path'):
-            data['photo_path'] = self.photo_path
+        # Always include photo_path in the data dictionary, even if it's None
+        # This allows us to explicitly clear the photo when photo_path is None
+        data['photo_path'] = self.photo_path
             
         return data
 
@@ -545,12 +640,12 @@ class EmployeeForm(QDialog):
                 Qt.SmoothTransformation
             )
             self.photo_label.setPixmap(scaled_pixmap)
+            # Reset photo_path to indicate we're using the existing photo from the database
+            self.photo_path = ''
         else:
             self.photo_label.clear()
-            
-        # Clear the stored photo path when loading new employee
-        if hasattr(self, 'photo_path'):
-            del self.photo_path
+            # Reset photo_path to None to indicate there's no photo
+            self.photo_path = None
             
         # Dates
         if employee_data.get('birth_date'):
@@ -594,6 +689,79 @@ class EmployeeForm(QDialog):
         self.bank_name_edit.setText(employee_data.get('bank_name', ''))
         self.basic_salary_edit.setText(str(employee_data.get('basic_salary', 0) or 0))
         
+        # Status toggle
+        is_active = employee_data.get('is_active', 1)
+        self.status_toggle.setChecked(is_active == 1)
+        if is_active == 1:
+            self.status_toggle.setText("نشط")
+            self.status_toggle.setStyleSheet("""
+                QPushButton {
+                    background-color: #27ae60;
+                    color: white;
+                    border-radius: 4px;
+                    padding: 5px 10px;
+                }
+                QPushButton:checked {
+                    background-color: #e74c3c;
+                }
+            """)
+        else:
+            self.status_toggle.setText("غير نشط")
+            self.status_toggle.setStyleSheet("""
+                QPushButton {
+                    background-color: #e74c3c;
+                    color: white;
+                    border-radius: 4px;
+                    padding: 5px 10px;
+                }
+                QPushButton:checked {
+                    background-color: #27ae60;
+                }
+            """)
+            
+    def setup_photo_section(self):
+        """Setup employee photo section"""
+        photo_layout = QHBoxLayout()
+        
+        # Photo display
+        photo_frame = QFrame()
+        photo_frame.setFrameShape(QFrame.StyledPanel)
+        photo_frame.setFixedSize(150, 150)
+        photo_frame_layout = QVBoxLayout(photo_frame)
+        
+        self.photo_label = QLabel()
+        self.photo_label.setAlignment(Qt.AlignCenter)
+        self.photo_label.setFixedSize(140, 140)
+        self.photo_label.setStyleSheet("background-color: #f0f0f0; border-radius: 5px;")
+        photo_frame_layout.addWidget(self.photo_label)
+        
+        # Photo buttons
+        photo_buttons_layout = QVBoxLayout()
+        
+        self.select_photo_btn = QPushButton("اختيار صورة")
+        self.select_photo_btn.setToolTip("اختر صورة للموظف")
+        self.select_photo_btn.clicked.connect(self.select_photo)
+        
+        self.clear_photo_btn = QPushButton("حذف الصورة")
+        self.clear_photo_btn.setToolTip("حذف صورة الموظف")
+        self.clear_photo_btn.clicked.connect(self.clear_photo)
+        
+        photo_buttons_layout.addWidget(self.select_photo_btn)
+        photo_buttons_layout.addWidget(self.clear_photo_btn)
+        photo_buttons_layout.addStretch()
+        
+        photo_layout.addWidget(photo_frame)
+        photo_layout.addLayout(photo_buttons_layout)
+        photo_layout.addStretch()
+        
+        return photo_layout
+        
+    def clear_photo(self):
+        """Clear the employee photo"""
+        self.photo_label.clear()
+        # Set photo_path to None explicitly to indicate that the photo should be removed from the database
+        self.photo_path = None
+        
     def save_employee(self):
         data = self.get_form_data()
         
@@ -614,30 +782,38 @@ class EmployeeForm(QDialog):
         
         current_id = self.employee_id
         if current_id:  # Update existing employee
-            success, error = self.employee_controller.update_employee(current_id, data)
+            success, result = self.employee_controller.update_employee(current_id, data)
             if success:
                 QMessageBox.information(self, "نجاح", "تم تحديث بيانات الموظف بنجاح")
-                # Reload employees while maintaining current position
-                self.load_employees()
-                # Find and select the updated employee
+                
+                # Update the employee in the employees list
+                for i, emp in enumerate(self.employees):
+                    if emp['id'] == current_id:
+                        self.employees[i] = result
+                        break
+                
+                # Update the employee in the filtered_employees list
                 for i, emp in enumerate(self.filtered_employees):
                     if emp['id'] == current_id:
+                        self.filtered_employees[i] = result
                         self.current_employee_index = i
-                        self.load_current_employee()
                         break
+                
+                # Load the updated employee directly
+                self.load_employee(result)
             else:
-                QMessageBox.warning(self, "خطأ", f"فشل في تحديث بيانات الموظف: {error}")
+                QMessageBox.warning(self, "خطأ", f"فشل في تحديث بيانات الموظف: {result}")
         else:  # Add new employee
-            success, error = self.employee_controller.add_employee(data)
+            success, result = self.employee_controller.add_employee(data)
             if success:
                 QMessageBox.information(self, "نجاح", "تم إضافة الموظف بنجاح")
-                # Reload employees and select the new employee (which will be first in the list)
+                # Reload employees and select the new employee
                 self.load_employees()
                 if self.filtered_employees:
                     self.current_employee_index = 0
                     self.load_current_employee()
             else:
-                QMessageBox.warning(self, "خطأ", f"فشل في إضافة الموظف: {error}")
+                QMessageBox.warning(self, "خطأ", f"فشل في إضافة الموظف: {result}")
 
     def apply_filters(self):
         """Apply search and filter criteria to employees list"""
@@ -649,18 +825,28 @@ class EmployeeForm(QDialog):
         self.filtered_employees = []
         
         for emp in self.employees:
-            # Check search text
-            if search_text and not any(search_text in str(value).lower() 
-                                     for value in emp.values()):
-                continue
+            # Check search text - search in specific fields
+            if search_text:
+                search_fields = ['name', 'name_ar', 'code', 'email', 'phone', 'national_id', 'position_name', 'department_name']
+                found = False
+                for field in search_fields:
+                    if field in emp and search_text in str(emp.get(field, '')).lower():
+                        found = True
+                        break
+                if not found:
+                    continue
             
             # Check department
             if department != "كل الأقسام" and emp.get('department_name') != department:
                 continue
             
-            # Check status
-            if status != "الكل" and emp.get('employee_status') != status:
-                continue
+            # Check status - fix to use is_active field
+            if status != "الكل":
+                is_active = emp.get('is_active', 1)
+                if status == "نشط" and is_active != 1:
+                    continue
+                elif status == "غير نشط" and is_active == 1:
+                    continue
             
             # Check salary range
             salary = float(emp.get('basic_salary', 0) or 0)
@@ -682,3 +868,165 @@ class EmployeeForm(QDialog):
         self.current_employee_index = -1 if not self.filtered_employees else 0
         self.load_current_employee()
         self.update_navigation_buttons()
+
+    def add_new_department(self):
+        """Open dialog to add a new department"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("إضافة قسم جديد")
+        dialog.setMinimumWidth(300)
+        
+        layout = QVBoxLayout()
+        
+        # Department name
+        name_layout = QFormLayout()
+        name_edit = QLineEdit()
+        name_layout.addRow("اسم القسم:", name_edit)
+        
+        # Department name in Arabic
+        name_ar_layout = QFormLayout()
+        name_ar_edit = QLineEdit()
+        name_ar_layout.addRow("اسم القسم (عربي):", name_ar_edit)
+        
+        # Department description
+        desc_layout = QFormLayout()
+        desc_edit = QTextEdit()
+        desc_edit.setMaximumHeight(100)
+        desc_layout.addRow("الوصف:", desc_edit)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        save_btn = QPushButton("حفظ")
+        cancel_btn = QPushButton("إلغاء")
+        
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(name_layout)
+        layout.addLayout(name_ar_layout)
+        layout.addLayout(desc_layout)
+        layout.addLayout(button_layout)
+        
+        dialog.setLayout(layout)
+        
+        # Connect buttons
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        def save_department():
+            dept_name = name_edit.text().strip()
+            if not dept_name:
+                QMessageBox.warning(dialog, "خطأ", "يجب إدخال اسم القسم")
+                return
+                
+            dept_data = {
+                'name': dept_name,
+                'name_ar': name_ar_edit.text().strip(),
+                'description': desc_edit.toPlainText(),
+                'is_active': 1
+            }
+            
+            success, result = self.employee_controller.add_department(dept_data)
+            if success:
+                QMessageBox.information(dialog, "نجاح", "تم إضافة القسم بنجاح")
+                # Add the new department to the combobox
+                self.department_combo.addItem(dept_data['name'], result)
+                # Select the newly added department
+                index = self.department_combo.findData(result)
+                if index >= 0:
+                    self.department_combo.setCurrentIndex(index)
+                dialog.accept()
+            else:
+                QMessageBox.warning(dialog, "خطأ", f"فشل في إضافة القسم: {result}")
+        
+        save_btn.clicked.connect(save_department)
+        
+        dialog.exec_()
+        
+    def add_new_position(self):
+        """Open dialog to add a new position"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("إضافة مسمى وظيفي جديد")
+        dialog.setMinimumWidth(300)
+        
+        layout = QVBoxLayout()
+        
+        # Position name
+        name_layout = QFormLayout()
+        name_edit = QLineEdit()
+        name_layout.addRow("المسمى الوظيفي:", name_edit)
+        
+        # Position name in Arabic
+        name_ar_edit = QLineEdit()
+        name_layout.addRow("المسمى الوظيفي (عربي):", name_ar_edit)
+        
+        # Department selection
+        dept_layout = QFormLayout()
+        dept_combo = QComboBox()
+        
+        # Load departments from database
+        success, departments = self.employee_controller.get_departments()
+        if success:
+            for dept in departments:
+                dept_combo.addItem(dept['name'], dept['id'])
+            
+            # Set default value to first department if available
+            if departments and len(departments) > 0:
+                dept_combo.setCurrentIndex(0)
+                
+        dept_layout.addRow("القسم:", dept_combo)
+        
+        # Position description
+        desc_layout = QFormLayout()
+        desc_edit = QTextEdit()
+        desc_edit.setMaximumHeight(100)
+        desc_layout.addRow("الوصف:", desc_edit)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        save_btn = QPushButton("حفظ")
+        cancel_btn = QPushButton("إلغاء")
+        
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(name_layout)
+        layout.addLayout(dept_layout)
+        layout.addLayout(desc_layout)
+        layout.addLayout(button_layout)
+        
+        dialog.setLayout(layout)
+        
+        # Connect buttons
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        def save_position():
+            pos_name = name_edit.text().strip()
+            if not pos_name:
+                QMessageBox.warning(dialog, "خطأ", "يجب إدخال المسمى الوظيفي")
+                return
+                
+            department_id = dept_combo.currentData()
+            
+            pos_data = {
+                'name': pos_name,
+                'name_ar': name_ar_edit.text().strip(),
+                'department_id': department_id,
+                'description': desc_edit.toPlainText(),
+                'is_active': 1
+            }
+            
+            success, result = self.employee_controller.add_position(pos_data)
+            if success:
+                QMessageBox.information(dialog, "نجاح", "تم إضافة المسمى الوظيفي بنجاح")
+                # Add the new position to the combobox
+                self.position_combo.addItem(pos_data['name'], result)
+                # Select the newly added position
+                index = self.position_combo.findData(result)
+                if index >= 0:
+                    self.position_combo.setCurrentIndex(index)
+                dialog.accept()
+            else:
+                QMessageBox.warning(dialog, "خطأ", f"فشل في إضافة المسمى الوظيفي: {result}")
+        
+        save_btn.clicked.connect(save_position)
+        
+        dialog.exec_()

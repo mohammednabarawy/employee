@@ -1,10 +1,10 @@
-from database.connection import get_database
 from database.schema import SCHEMA
 from datetime import date
+import sqlite3
 
 def init_db():
-    db = get_database()
-    conn = db.get_connection()
+    # Create connection to database
+    conn = sqlite3.connect('employee.db')
     cursor = conn.cursor()
     
     # Enable foreign keys
@@ -51,44 +51,47 @@ def init_db():
     
     # Add sample departments
     departments = [
-        ('DEP001', 'General Management', 'الإدارة العامة'),
-        ('DEP002', 'Human Resources', 'الموارد البشرية'),
-        ('DEP003', 'Finance', 'المالية'),
-        ('DEP004', 'Information Technology', 'تقنية المعلومات'),
-        ('DEP005', 'Sales', 'المبيعات')
+        ('General Management', 'الإدارة العامة', 'Responsible for overall company management'),
+        ('Human Resources', 'الموارد البشرية', 'Handles employee affairs and recruitment'),
+        ('Finance', 'المالية', 'Manages company finances and accounting'),
+        ('Information Technology', 'تقنية المعلومات', 'Manages IT infrastructure and software development'),
+        ('Sales', 'المبيعات', 'Handles sales and customer relationships')
     ]
     
-    for code, name, name_ar in departments:
+    for name, name_ar, description in departments:
         cursor.execute("""
-            INSERT OR IGNORE INTO departments (code, name, name_ar)
+            INSERT OR IGNORE INTO departments (name, name_ar, description)
             VALUES (?, ?, ?)
-        """, (code, name, name_ar))
+        """, (name, name_ar, description))
     
     # Add sample positions
     positions = [
-        ('POS001', 'General Manager', 'مدير عام', 1),
-        ('POS002', 'HR Manager', 'مدير موارد بشرية', 2),
-        ('POS003', 'Accountant', 'محاسب', 3),
-        ('POS004', 'Software Developer', 'مطور برامج', 4),
-        ('POS005', 'Sales Representative', 'مندوب مبيعات', 5)
+        ('General Manager', 'مدير عام', 1, 'Responsible for company management'),
+        ('HR Manager', 'مدير موارد بشرية', 2, 'Manages HR department'),
+        ('Accountant', 'محاسب', 3, 'Handles accounting and finances'),
+        ('Software Developer', 'مطور برامج', 4, 'Develops software applications'),
+        ('Sales Representative', 'مندوب مبيعات', 5, 'Handles sales and customer relations')
     ]
     
-    for code, name, name_ar, dept_id in positions:
+    for name, name_ar, dept_id, description in positions:
         cursor.execute("""
-            INSERT OR IGNORE INTO positions (code, name, name_ar, department_id)
+            INSERT OR IGNORE INTO positions (name, name_ar, department_id, description)
             VALUES (?, ?, ?, ?)
-        """, (code, name, name_ar, dept_id))
+        """, (name, name_ar, dept_id, description))
     
     # Add sample employees
     employees = [
-        ('EMP001', 'Ahmed Mohamed', 'أحمد محمد', 1, 1, 15000, '2020-01-01'),
-        ('EMP002', 'Mohamed Ali', 'محمد علي', 2, 2, 12000, '2020-02-01'),
-        ('EMP003', 'Fatima Ahmed', 'فاطمة أحمد', 3, 3, 10000, '2020-03-01'),
-        ('EMP004', 'Omar Khaled', 'عمر خالد', 4, 4, 13000, '2020-04-01'),
-        ('EMP005', 'Sara Mahmoud', 'سارة محمود', 5, 5, 9000, '2020-05-01')
+        ('Ahmed Mohamed', 'أحمد محمد', 1, 1, 15000, '2020-01-01'),
+        ('Mohamed Ali', 'محمد علي', 2, 2, 12000, '2020-02-01'),
+        ('Fatima Ahmed', 'فاطمة أحمد', 3, 3, 10000, '2020-03-01'),
+        ('Omar Khaled', 'عمر خالد', 4, 4, 13000, '2020-04-01'),
+        ('Sara Mahmoud', 'سارة محمود', 5, 5, 9000, '2020-05-01')
     ]
     
-    for code, name, name_ar, dept_id, pos_id, salary, hire_date in employees:
+    for i, (name, name_ar, dept_id, pos_id, salary, hire_date) in enumerate(employees, 1):
+        # Generate a unique code for each employee
+        code = f"EMP{i:03d}"
+        
         cursor.execute("""
             INSERT OR IGNORE INTO employees (
                 code, name, name_ar, department_id, position_id,
@@ -113,6 +116,20 @@ def init_db():
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (name, name_ar, type, is_active, is_percentage, 
               value if is_percentage else None, value if not is_percentage else None))
+    
+    # Add payment methods
+    payment_methods = [
+        ('Cash', 'نقدي'),
+        ('Bank Transfer', 'تحويل بنكي'),
+        ('Check', 'شيك'),
+        ('Digital Wallet', 'محفظة رقمية')
+    ]
+    
+    for name, name_ar in payment_methods:
+        cursor.execute("""
+            INSERT OR IGNORE INTO payment_methods (name, name_ar, is_active)
+            VALUES (?, ?, 1)
+        """, (name, name_ar))
     
     conn.commit()
     conn.close()
