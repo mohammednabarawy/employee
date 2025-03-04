@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableWidgetItem, QHeaderView)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtChart import QChart, QChartView, QPieSeries, QBarSeries, QBarSet, QValueAxis, QBarCategoryAxis
-from PyQt5.QtGui import QPainter, QColor, QPixmap
+from PyQt5.QtGui import QPainter, QColor, QPixmap, QFont, QLinearGradient, QPalette
 from datetime import datetime, timedelta
 from controllers import ReportController
 from utils import chart_utils
@@ -92,47 +92,131 @@ class Dashboard(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
         
-        # Company info section
+        # Enhanced Company info section with modern design
         self.company_info_frame = QFrame()
         self.company_info_frame.setObjectName("company_info_frame")
+        self.company_info_frame.setMinimumHeight(150)
         self.company_info_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border-radius: 8px;
-                padding: 10px;
+            QFrame#company_info_frame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2c3e50, stop:1 #3498db);
+                border-radius: 15px;
+                padding: 15px;
+                margin-bottom: 10px;
+            }
+            QLabel#company_name_label {
+                font-size: 24px;
+                font-weight: bold;
+                color: white;
+                margin: 5px;
+            }
+            QLabel#register_label {
+                font-size: 14px;
+                color: #ecf0f1;
+                margin: 2px;
             }
         """)
-        company_info_layout = QVBoxLayout(self.company_info_frame)
+        
+        company_info_layout = QHBoxLayout(self.company_info_frame)
+        company_info_layout.setContentsMargins(20, 15, 20, 15)
         
         # Get company info
         company_name = CompanyInfo.get_company_name(self.db.db_file)
         commercial_register = CompanyInfo.get_commercial_register(self.db.db_file)
+        tax_number = CompanyInfo.get_tax_number(self.db.db_file)
+        social_insurance = CompanyInfo.get_social_insurance(self.db.db_file)
         
-        # Company name
+        # Logo section (left side)
+        logo_container = QFrame()
+        logo_container.setFixedWidth(150)
+        logo_layout = QVBoxLayout(logo_container)
+        logo_layout.setAlignment(Qt.AlignCenter)
+        
+        # Get and display logo
+        logo_data, logo_mime = CompanyInfo.get_logo(self.db.db_file)
+        if logo_data:
+            logo_label = QLabel()
+            pixmap = QPixmap()
+            pixmap.loadFromData(logo_data)
+            scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+            logo_label.setAlignment(Qt.AlignCenter)
+            
+            # Add circular frame to logo
+            logo_label.setStyleSheet("""
+                background-color: white;
+                border-radius: 60px;
+                padding: 5px;
+                margin: 5px;
+            """)
+            logo_layout.addWidget(logo_label)
+        else:
+            # Default logo if none exists
+            default_logo_label = QLabel("LOGO")
+            default_logo_label.setStyleSheet("""
+                background-color: white;
+                color: #2c3e50;
+                font-size: 18px;
+                font-weight: bold;
+                border-radius: 60px;
+                padding: 40px;
+                margin: 5px;
+            """)
+            default_logo_label.setFixedSize(120, 120)
+            default_logo_label.setAlignment(Qt.AlignCenter)
+            logo_layout.addWidget(default_logo_label)
+        
+        # Company details section (right side)
+        details_container = QFrame()
+        details_layout = QVBoxLayout(details_container)
+        details_layout.setAlignment(Qt.AlignVCenter)
+        
+        # Company name with shadow effect
         if company_name:
             company_name_label = QLabel(company_name)
-            company_name_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
-            company_name_label.setAlignment(Qt.AlignCenter)
-            company_info_layout.addWidget(company_name_label)
+            company_name_label.setObjectName("company_name_label")
+            company_name_label.setAlignment(Qt.AlignRight)
+            details_layout.addWidget(company_name_label)
+            
+            # Company details in a grid layout
+            details_grid = QFrame()
+            details_grid_layout = QVBoxLayout(details_grid)
+            details_grid_layout.setSpacing(5)
+            details_grid_layout.setContentsMargins(0, 5, 0, 0)
             
             # Commercial register
             if commercial_register:
                 register_label = QLabel(f"رقم السجل التجاري: {commercial_register}")
-                register_label.setAlignment(Qt.AlignCenter)
-                register_label.setStyleSheet("color: #7f8c8d;")
-                company_info_layout.addWidget(register_label)
+                register_label.setObjectName("register_label")
+                register_label.setAlignment(Qt.AlignRight)
+                details_grid_layout.addWidget(register_label)
             
-            # Get and display logo
-            logo_data, logo_mime = CompanyInfo.get_logo(self.db.db_file)
-            if logo_data:
-                logo_label = QLabel()
-                pixmap = QPixmap()
-                pixmap.loadFromData(logo_data)
-                logo_label.setPixmap(pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                logo_label.setAlignment(Qt.AlignCenter)
-                company_info_layout.addWidget(logo_label)
+            # Tax number
+            if tax_number:
+                tax_label = QLabel(f"الرقم الضريبي: {tax_number}")
+                tax_label.setObjectName("register_label")
+                tax_label.setAlignment(Qt.AlignRight)
+                details_grid_layout.addWidget(tax_label)
             
-            main_layout.addWidget(self.company_info_frame)
+            # Social insurance
+            if social_insurance:
+                insurance_label = QLabel(f"رقم التأمينات الاجتماعية: {social_insurance}")
+                insurance_label.setObjectName("register_label")
+                insurance_label.setAlignment(Qt.AlignRight)
+                details_grid_layout.addWidget(insurance_label)
+            
+            details_layout.addWidget(details_grid)
+        else:
+            # Default company name if none exists
+            default_name_label = QLabel("شركتك")
+            default_name_label.setObjectName("company_name_label")
+            default_name_label.setAlignment(Qt.AlignRight)
+            details_layout.addWidget(default_name_label)
+        
+        # Add the logo and details sections to the company info layout
+        company_info_layout.addWidget(logo_container)
+        company_info_layout.addWidget(details_container, 1)  # Give the details section more space
+        
+        main_layout.addWidget(self.company_info_frame)
         
         # Database info section
         db_info_frame = QFrame()
@@ -530,42 +614,126 @@ class Dashboard(QWidget):
         # Create new company info frame
         company_info_frame = QFrame()
         company_info_frame.setObjectName("company_info_frame")
+        company_info_frame.setMinimumHeight(150)
         company_info_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border-radius: 8px;
-                padding: 10px;
+            QFrame#company_info_frame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2c3e50, stop:1 #3498db);
+                border-radius: 15px;
+                padding: 15px;
+                margin-bottom: 10px;
+            }
+            QLabel#company_name_label {
+                font-size: 24px;
+                font-weight: bold;
+                color: white;
+                margin: 5px;
+            }
+            QLabel#register_label {
+                font-size: 14px;
+                color: #ecf0f1;
+                margin: 2px;
             }
         """)
-        company_info_layout = QVBoxLayout(company_info_frame)
+        
+        company_info_layout = QHBoxLayout(company_info_frame)
+        company_info_layout.setContentsMargins(20, 15, 20, 15)
         
         # Get company info
         company_name = CompanyInfo.get_company_name(db_file)
         commercial_register = CompanyInfo.get_commercial_register(db_file)
+        tax_number = CompanyInfo.get_tax_number(db_file)
+        social_insurance = CompanyInfo.get_social_insurance(db_file)
         
-        # Company name
+        # Logo section (left side)
+        logo_container = QFrame()
+        logo_container.setFixedWidth(150)
+        logo_layout = QVBoxLayout(logo_container)
+        logo_layout.setAlignment(Qt.AlignCenter)
+        
+        # Get and display logo
+        logo_data, logo_mime = CompanyInfo.get_logo(db_file)
+        if logo_data:
+            logo_label = QLabel()
+            pixmap = QPixmap()
+            pixmap.loadFromData(logo_data)
+            scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+            logo_label.setAlignment(Qt.AlignCenter)
+            
+            # Add circular frame to logo
+            logo_label.setStyleSheet("""
+                background-color: white;
+                border-radius: 60px;
+                padding: 5px;
+                margin: 5px;
+            """)
+            logo_layout.addWidget(logo_label)
+        else:
+            # Default logo if none exists
+            default_logo_label = QLabel("LOGO")
+            default_logo_label.setStyleSheet("""
+                background-color: white;
+                color: #2c3e50;
+                font-size: 18px;
+                font-weight: bold;
+                border-radius: 60px;
+                padding: 40px;
+                margin: 5px;
+            """)
+            default_logo_label.setFixedSize(120, 120)
+            default_logo_label.setAlignment(Qt.AlignCenter)
+            logo_layout.addWidget(default_logo_label)
+        
+        # Company details section (right side)
+        details_container = QFrame()
+        details_layout = QVBoxLayout(details_container)
+        details_layout.setAlignment(Qt.AlignVCenter)
+        
+        # Company name with shadow effect
         if company_name:
             company_name_label = QLabel(company_name)
-            company_name_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
-            company_name_label.setAlignment(Qt.AlignCenter)
-            company_info_layout.addWidget(company_name_label)
+            company_name_label.setObjectName("company_name_label")
+            company_name_label.setAlignment(Qt.AlignRight)
+            details_layout.addWidget(company_name_label)
+            
+            # Company details in a grid layout
+            details_grid = QFrame()
+            details_grid_layout = QVBoxLayout(details_grid)
+            details_grid_layout.setSpacing(5)
+            details_grid_layout.setContentsMargins(0, 5, 0, 0)
             
             # Commercial register
             if commercial_register:
                 register_label = QLabel(f"رقم السجل التجاري: {commercial_register}")
-                register_label.setAlignment(Qt.AlignCenter)
-                register_label.setStyleSheet("color: #7f8c8d;")
-                company_info_layout.addWidget(register_label)
+                register_label.setObjectName("register_label")
+                register_label.setAlignment(Qt.AlignRight)
+                details_grid_layout.addWidget(register_label)
             
-            # Get and display logo
-            logo_data, logo_mime = CompanyInfo.get_logo(db_file)
-            if logo_data:
-                logo_label = QLabel()
-                pixmap = QPixmap()
-                pixmap.loadFromData(logo_data)
-                logo_label.setPixmap(pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                logo_label.setAlignment(Qt.AlignCenter)
-                company_info_layout.addWidget(logo_label)
+            # Tax number
+            if tax_number:
+                tax_label = QLabel(f"الرقم الضريبي: {tax_number}")
+                tax_label.setObjectName("register_label")
+                tax_label.setAlignment(Qt.AlignRight)
+                details_grid_layout.addWidget(tax_label)
             
-            # Insert at the top of the layout
-            self.layout().insertWidget(0, company_info_frame)
+            # Social insurance
+            if social_insurance:
+                insurance_label = QLabel(f"رقم التأمينات الاجتماعية: {social_insurance}")
+                insurance_label.setObjectName("register_label")
+                insurance_label.setAlignment(Qt.AlignRight)
+                details_grid_layout.addWidget(insurance_label)
+            
+            details_layout.addWidget(details_grid)
+        else:
+            # Default company name if none exists
+            default_name_label = QLabel("شركتك")
+            default_name_label.setObjectName("company_name_label")
+            default_name_label.setAlignment(Qt.AlignRight)
+            details_layout.addWidget(default_name_label)
+        
+        # Add the logo and details sections to the company info layout
+        company_info_layout.addWidget(logo_container)
+        company_info_layout.addWidget(details_container, 1)  # Give the details section more space
+        
+        # Insert at the top of the layout
+        self.layout().insertWidget(0, company_info_frame)

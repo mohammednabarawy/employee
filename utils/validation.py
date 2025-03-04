@@ -216,12 +216,22 @@ class ValidationUtils:
             return False, f"تاريخ الدفع: {error}"
         
         # Validate payment method
-        valid_methods = {'تحويل بنكي', 'نقدي', 'شيك'}
+        valid_methods = {
+            # Arabic
+            'تحويل بنكي', 'نقدي', 'شيك',
+            # English
+            'Bank Transfer', 'Cash', 'Check', 'Cheque'
+        }
         if data['payment_method'] not in valid_methods:
             return False, "طريقة الدفع غير صحيحة"
         
         # Validate payment status
-        valid_statuses = {'تم الدفع', 'معلق', 'ملغي'}
+        valid_statuses = {
+            # Arabic
+            'تم الدفع', 'معلق', 'ملغي',
+            # English
+            'Paid', 'Pending', 'Cancelled', 'Canceled'
+        }
         if data['payment_status'] not in valid_statuses:
             return False, "حالة الدفع غير صحيحة"
         

@@ -109,8 +109,8 @@ class EmployeeController(QObject):
                 employment_query = """
                     INSERT INTO employment_details (
                         employee_id, department_id, position_id, manager_id,
-                        employee_status, employment_type, contract_type,
-                        start_date, end_date, created_at, updated_at
+                        employee_status, hire_date, contract_type,
+                        salary_type, working_hours, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """
                 
@@ -120,10 +120,10 @@ class EmployeeController(QObject):
                     employee_data.get('position_id'),
                     employee_data.get('manager_id'),
                     'نشط',  # Default status is Active in Arabic
-                    employee_data.get('employment_type', 'دوام كامل'),  # Default is Full Time in Arabic
-                    employee_data.get('contract_type', 'دائم'),  # Default is Permanent in Arabic
                     employee_data.get('hire_date'),
-                    employee_data.get('end_date'),
+                    employee_data.get('contract_type', 'دائم'),  # Default is Permanent in Arabic
+                    employee_data.get('salary_type', 'monthly'),  # Default is monthly
+                    employee_data.get('working_hours', 40),  # Default is 40 hours
                 ))
                 
                 cursor.execute("COMMIT")
@@ -338,7 +338,7 @@ class EmployeeController(QObject):
             conn.close()
 
     def delete_employee(self, employee_id):
-        """Delete an employee from the database"""
+        """Delete an employee from the database (mark as inactive)"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
@@ -352,32 +352,8 @@ class EmployeeController(QObject):
                     cursor.execute("ROLLBACK")
                     return False, "الموظف غير موجود"
                 
-                # Check if employee is a manager in departments
-                cursor.execute("SELECT id FROM departments WHERE manager_id = ?", (employee_id,))
-                if cursor.fetchone():
-                    cursor.execute("ROLLBACK")
-                    return False, "لا يمكن حذف الموظف لأنه مدير قسم. قم بتعيين مدير آخر أولاً"
-                
-                # Check if employee is a manager for other employees
-                cursor.execute("SELECT id FROM employment_details WHERE manager_id = ?", (employee_id,))
-                if cursor.fetchone():
-                    cursor.execute("ROLLBACK")
-                    return False, "لا يمكن حذف الموظف لأنه مدير لموظفين آخرين. قم بتعيين مدير آخر لهم أولاً"
-                
-                # Delete records in correct order to respect foreign key constraints
-                tables = [
-                    'payroll_details',
-                    'payroll',
-                    'employee_salary_components',
-                    'loans',
-                    'leaves',
-                    'attendance',
-                    'employment_details',
-                    'employees'
-                ]
-                
-                for table in tables:
-                    cursor.execute(f"DELETE FROM {table} WHERE employee_id = ?", (employee_id,))
+                # Instead of deleting records, just mark the employee as inactive
+                cursor.execute("UPDATE employees SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (employee_id,))
                 
                 # Commit the transaction
                 cursor.execute("COMMIT")
@@ -1004,6 +980,34 @@ class EmployeeController(QObject):
             
             conn.commit()
             return True, None
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def get_employees_by_department(self, department_id):
+        """Get all employees from a specific department"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT e.*, d.name as department_name, p.name as position_name
+                FROM employees e
+                LEFT JOIN departments d ON e.department_id = d.id
+                LEFT JOIN positions p ON e.position_id = p.id
+                WHERE e.department_id = ?
+                ORDER BY e.name
+            """
+            
+            cursor.execute(query, (department_id,))
+            
+            # Convert to list of dictionaries
+            columns = [column[0] for column in cursor.description]
+            employees = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            return True, employees
             
         except Exception as e:
             return False, str(e)
