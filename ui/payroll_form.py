@@ -264,39 +264,42 @@ class PayrollForm(QWidget):
         layout = QVBoxLayout()
         self.setLayout(layout)
         
-        # Create top section for period selection and creation
-        period_group = QGroupBox("فترة الرواتب")
-        period_layout = QHBoxLayout()
-        period_group.setLayout(period_layout)
+        # Create toolbar
+        toolbar = QHBoxLayout()
         
-        # Add period selector
+        # Period selection
+        period_layout = QHBoxLayout()
+        period_label = QLabel("فترة الرواتب:")
         self.period_combo = QComboBox()
-        self.period_combo.currentIndexChanged.connect(self.period_selected)
+        self.period_combo.setMinimumWidth(200)
+        self.period_combo.currentIndexChanged.connect(self.period_selected)  # Add this line
+        
+        period_layout.addWidget(period_label)
         period_layout.addWidget(self.period_combo)
         
-        # Year and Month selection for new period
-        self.year_combo = QComboBox()
-        current_year = datetime.now().year
-        self.year_combo.addItems([str(year) for year in range(current_year - 2, current_year + 3)])
-        self.year_combo.setCurrentText(str(current_year))
+        # Create period button
+        create_period_btn = QPushButton("إنشاء فترة جديدة")
+        create_period_btn.setIcon(qta.icon('fa5s.plus-circle', color='white'))
+        create_period_btn.clicked.connect(self.create_period)
         
-        self.month_combo = QComboBox()
-        self.month_combo.addItems([
-            "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
-            "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
-        ])
-        self.month_combo.setCurrentIndex(datetime.now().month - 1)
+        # Add employees button
+        add_employees_btn = QPushButton("إضافة موظفين")
+        add_employees_btn.setIcon(qta.icon('fa5s.user-plus', color='white'))
+        add_employees_btn.clicked.connect(self.add_employees)
         
-        period_layout.addWidget(QLabel("السنة:"))
-        period_layout.addWidget(self.year_combo)
-        period_layout.addWidget(QLabel("الشهر:"))
-        period_layout.addWidget(self.month_combo)
+        # Salary comparison button
+        compare_btn = QPushButton("مقارنة الرواتب")
+        compare_btn.setIcon(qta.icon('fa5s.chart-bar', color='white'))
+        compare_btn.clicked.connect(self.show_salary_comparison)
         
-        self.create_period_btn = QPushButton("إنشاء فترة جديدة")
-        self.create_period_btn.clicked.connect(self.create_period)
-        period_layout.addWidget(self.create_period_btn)
+        # Add to toolbar
+        toolbar.addLayout(period_layout)
+        toolbar.addWidget(create_period_btn)
+        toolbar.addWidget(add_employees_btn)
+        toolbar.addWidget(compare_btn)
+        toolbar.addStretch()
         
-        layout.addWidget(period_group)
+        layout.addLayout(toolbar)
         
         # Button layout
         button_layout = QHBoxLayout()
@@ -313,9 +316,14 @@ class PayrollForm(QWidget):
         self.process_btn.clicked.connect(self.process_payroll)
         self.process_btn.setEnabled(False)
         
+        self.print_all_btn = QPushButton("طباعة جميع قسائم الرواتب")
+        self.print_all_btn.clicked.connect(self.print_all_payslips)
+        self.print_all_btn.setEnabled(False)
+        
         button_layout.addWidget(self.add_employee_btn)
         button_layout.addWidget(self.approve_btn)
         button_layout.addWidget(self.process_btn)
+        button_layout.addWidget(self.print_all_btn)
         layout.addLayout(button_layout)
         
         # Add payroll table
@@ -354,24 +362,27 @@ class PayrollForm(QWidget):
     
     def period_selected(self, index):
         """Handle period selection"""
-        period_id = self.period_combo.currentData()
-        if period_id:
-            self.current_period_id = period_id
-            self.load_payroll_data()
-            
-            # Get period status to enable/disable buttons
-            success, status = self.payroll_controller.get_period_status(period_id)
-            if success:
-                self.add_employee_btn.setEnabled(status in ['draft', 'processing'])
-                self.approve_btn.setEnabled(status == 'draft')
-                self.process_btn.setEnabled(status == 'approved')
-        else:
+        if index < 0:
             self.current_period_id = None
-            self.payroll_table.setRowCount(0)
             self.add_employee_btn.setEnabled(False)
             self.approve_btn.setEnabled(False)
             self.process_btn.setEnabled(False)
+            self.print_all_btn.setEnabled(False)
+            return
+            
+        self.current_period_id = self.period_combo.itemData(index)
+        self.load_payroll_data()
         
+        # Update button states based on period status
+        success, status = self.payroll_controller.get_period_status(self.current_period_id)
+        if success:
+            self.add_employee_btn.setEnabled(status in ['draft', 'processing'])
+            self.approve_btn.setEnabled(status == 'draft')
+            self.process_btn.setEnabled(status == 'approved')
+            # Enable print button for any status as long as there are entries
+            success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
+            self.print_all_btn.setEnabled(success and len(entries) > 0)
+
     def show_context_menu(self, pos):
         row = self.payroll_table.rowAt(pos.y())
         if row < 0:
@@ -386,11 +397,12 @@ class PayrollForm(QWidget):
             
         # Only show edit options if period is draft or processing
         if status in ['draft', 'processing']:
-            edit_action = menu.addAction("تعديل")
-            delete_action = menu.addAction("حذف")
+            edit_action = menu.addAction(qta.icon('fa5s.edit', color='#f39c12'), "تعديل")
+            delete_action = menu.addAction(qta.icon('fa5s.trash-alt', color='#e74c3c'), "حذف")
             
-        view_details = menu.addAction("عرض التفاصيل")
-        print_slip = menu.addAction("طباعة قسيمة الراتب")
+        view_action = menu.addAction(qta.icon('fa5s.eye', color='#3498db'), "عرض التفاصيل")
+        history_action = menu.addAction(qta.icon('fa5s.history', color='#2ecc71'), "سجل الرواتب")
+        print_action = menu.addAction(qta.icon('fa5s.print', color='#9b59b6'), "طباعة قسيمة الراتب")
         
         action = menu.exec_(self.payroll_table.viewport().mapToGlobal(pos))
         if not action:
@@ -402,9 +414,11 @@ class PayrollForm(QWidget):
             self.edit_entry(self.payroll_table.item(row, 0))
         elif action == delete_action and status in ['draft', 'processing']:
             self.delete_employee(row)
-        elif action == view_details:
+        elif action == view_action:
             self.view_employee_details(employee_data)
-        elif action == print_slip:
+        elif action == history_action:
+            self.view_salary_history(employee_data)
+        elif action == print_action:
             self.print_payslip(employee_data)
 
     def delete_employee(self, row):
@@ -436,9 +450,88 @@ class PayrollForm(QWidget):
                               f"سيتم عرض تفاصيل الموظف {employee_data.get('الموظف', '')}")
 
     def print_payslip(self, employee_data):
-        # TODO: Implement payslip printing
-        QMessageBox.information(self, "طباعة قسيمة الراتب", 
-                              f"سيتم طباعة قسيمة راتب الموظف {employee_data.get('الموظف', '')}")
+        """Print payslip for a single employee"""
+        if not self.current_period_id or not employee_data.get('id'):
+            return
+            
+        # Get entry ID
+        entry_id = None
+        success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
+        if success:
+            for entry in entries:
+                if entry.get('employee_id') == employee_data.get('id'):
+                    entry_id = entry.get('id')
+                    break
+        
+        if not entry_id:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على بيانات الراتب لهذا الموظف")
+            return
+            
+        # Get detailed payslip data
+        success, payslip_data = self.payroll_controller.get_employee_payslip(entry_id)
+        if not success:
+            QMessageBox.warning(self, "خطأ", f"فشل استرجاع بيانات قسيمة الراتب: {payslip_data}")
+            return
+            
+        # Print the payslip
+        try:
+            from .payslip_template import PayslipPrinter
+            PayslipPrinter.print_multiple_payslips(self, [payslip_data])
+        except ImportError:
+            # Try alternative import path
+            try:
+                from ui.payslip_template import PayslipPrinter
+                PayslipPrinter.print_multiple_payslips(self, [payslip_data])
+            except Exception as e:
+                QMessageBox.warning(self, "خطأ", f"فشل طباعة قسيمة الراتب: {str(e)}")
+
+    def print_all_payslips(self):
+        """Print payslips for all employees in the current period"""
+        if not self.current_period_id:
+            return
+            
+        # Get all entries for the current period
+        success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
+        if not success or not entries:
+            QMessageBox.warning(self, "خطأ", "لا توجد بيانات رواتب للطباعة")
+            return
+            
+        # Get detailed payslip data for each entry
+        payslips_data = []
+        for entry in entries:
+            entry_id = entry.get('id')
+            if entry_id:
+                success, payslip_data = self.payroll_controller.get_employee_payslip(entry_id)
+                if success:
+                    payslips_data.append(payslip_data)
+        
+        if not payslips_data:
+            QMessageBox.warning(self, "خطأ", "فشل استرجاع بيانات قسائم الرواتب")
+            return
+            
+        # Print all payslips
+        try:
+            from .payslip_template import PayslipPrinter
+            PayslipPrinter.print_multiple_payslips(self, payslips_data)
+        except ImportError:
+            # Try alternative import path
+            try:
+                from ui.payslip_template import PayslipPrinter
+                PayslipPrinter.print_multiple_payslips(self, payslips_data)
+            except Exception as e:
+                QMessageBox.warning(self, "خطأ", f"فشل طباعة قسائم الرواتب: {str(e)}")
+
+    def view_salary_history(self, employee_data):
+        """Show salary history for an employee"""
+        from ui.salary_history_dialog import SalaryHistoryDialog
+        dialog = SalaryHistoryDialog(self.payroll_controller, employee_data, self)
+        dialog.exec_()
+
+    def show_salary_comparison(self):
+        """Show salary comparison dialog"""
+        from ui.salary_comparison_dialog import SalaryComparisonDialog
+        dialog = SalaryComparisonDialog(self.payroll_controller, self.employee_controller, self)
+        dialog.exec_()
 
     def create_period(self):
         """Create a new payroll period"""
@@ -591,6 +684,8 @@ class PayrollForm(QWidget):
             self.add_employee_btn.setEnabled(status in ['draft', 'processing'])
             self.approve_btn.setEnabled(status == 'draft')
             self.process_btn.setEnabled(status == 'approved')
+            # Enable print button if there are entries
+            self.print_all_btn.setEnabled(len(entries) > 0)
 
     def approve_payroll(self):
         if not self.current_period_id:
@@ -625,7 +720,11 @@ class PayrollForm(QWidget):
         )
         
         if reply == QMessageBox.Yes:
-            success, message = self.payroll_controller.process_payroll(self.current_period_id)
+            # Using user ID 1 as default processor
+            success, message = self.payroll_controller.process_payroll(
+                self.current_period_id,
+                processed_by=1
+            )
             if success:
                 self.load_payroll_data()
                 QMessageBox.information(self, "نجاح", "تم صرف الرواتب بنجاح")

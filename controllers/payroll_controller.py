@@ -207,11 +207,23 @@ class PayrollController(QObject):
             
             cursor.execute("""
                 SELECT 
-                    pe.*,
+                    pe.id,
+                    pe.employee_id,
                     e.name as employee_name,
-                    pm.name_ar as payment_method_name
+                    d.name as department_name,
+                    pe.basic_salary,
+                    pe.total_allowances,
+                    pe.total_deductions,
+                    pe.net_salary,
+                    pe.payment_method,
+                    pm.name_ar as payment_method_name,
+                    pe.payment_status,
+                    pe.payment_date,
+                    pe.notes
                 FROM payroll_entries pe
                 JOIN employees e ON pe.employee_id = e.id
+                LEFT JOIN employment_details ed ON e.id = ed.employee_id
+                LEFT JOIN departments d ON ed.department_id = d.id
                 LEFT JOIN payment_methods pm ON pe.payment_method = pm.id
                 WHERE pe.payroll_period_id = ?
                 ORDER BY e.name
@@ -422,15 +434,30 @@ class PayrollController(QObject):
             if entry_count == 0:
                 return False, "لا يمكن اعتماد فترة رواتب فارغة. يرجى إضافة موظفين أولاً"
             
-            # Update period status
-            cursor.execute("""
-                UPDATE payroll_periods 
-                SET status = 'approved',
-                    approved_by = ?,
-                    approved_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (approved_by, period_id))
+            # Check if approved_at column exists
+            cursor.execute("PRAGMA table_info(payroll_periods)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Prepare SQL based on available columns
+            if 'approved_at' in columns:
+                # Update period status with approved_at timestamp
+                cursor.execute("""
+                    UPDATE payroll_periods 
+                    SET status = 'approved',
+                        approved_by = ?,
+                        approved_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (approved_by, period_id))
+            else:
+                # Update period status without approved_at timestamp
+                cursor.execute("""
+                    UPDATE payroll_periods 
+                    SET status = 'approved',
+                        approved_by = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (approved_by, period_id))
             
             # Update all entries to approved status
             cursor.execute("""
@@ -465,15 +492,29 @@ class PayrollController(QObject):
             if period[0] != 'approved':
                 return False, "يجب اعتماد كشف الرواتب أولاً"
             
-            # Update period status and entries
-            cursor.execute("""
-                UPDATE payroll_periods 
-                SET status = 'processed',
-                    processed_by = ?,
-                    processed_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (processed_by, period_id))
+            # Check if processed_at and processed_by columns exist
+            cursor.execute("PRAGMA table_info(payroll_periods)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Prepare SQL based on available columns
+            if 'processed_at' in columns and 'processed_by' in columns:
+                # Update with processed_at and processed_by
+                cursor.execute("""
+                    UPDATE payroll_periods 
+                    SET status = 'processed',
+                        processed_by = ?,
+                        processed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (processed_by, period_id))
+            else:
+                # Update without processed_at and processed_by
+                cursor.execute("""
+                    UPDATE payroll_periods 
+                    SET status = 'processed',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (period_id,))
             
             cursor.execute("""
                 UPDATE payroll_entries 
@@ -614,6 +655,7 @@ class PayrollController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
+            # First get the basic entry data
             cursor.execute("""
                 SELECT 
                     pe.*,
@@ -623,17 +665,11 @@ class PayrollController(QObject):
                     pp.period_month,
                     pp.start_date,
                     pp.end_date,
-                    d.name as department_name,
-                    p.title as position_title,
-                    ed.bank_name,
-                    ed.bank_account,
-                    ed.iban
+                    pm.name_ar as payment_method_name
                 FROM payroll_entries pe
                 JOIN employees e ON pe.employee_id = e.id
                 JOIN payroll_periods pp ON pe.payroll_period_id = pp.id
-                JOIN employment_details ed ON e.id = ed.employee_id
-                JOIN departments d ON ed.department_id = d.id
-                JOIN positions p ON ed.position_id = p.id
+                LEFT JOIN payment_methods pm ON pe.payment_method = pm.id
                 WHERE pe.id = ?
             """, (entry_id,))
             
@@ -644,27 +680,111 @@ class PayrollController(QObject):
             columns = [description[0] for description in cursor.description]
             payslip = dict(zip(columns, row))
             
-            # Get component details
-            cursor.execute("""
-                SELECT 
-                    ped.amount,
-                    ped.type,
-                    sc.name,
-                    sc.name_ar
-                FROM payroll_entry_details ped
-                JOIN salary_components sc ON ped.component_id = sc.id
-                WHERE ped.payroll_entry_id = ?
-                ORDER BY ped.type, sc.name
-            """, (entry_id,))
+            # Try to get department and position info if available
+            try:
+                cursor.execute("""
+                    SELECT 
+                        d.name as department_name,
+                        p.title as position_title
+                    FROM employees e
+                    LEFT JOIN employment_details ed ON e.id = ed.employee_id
+                    LEFT JOIN departments d ON ed.department_id = d.id
+                    LEFT JOIN positions p ON ed.position_id = p.id
+                    WHERE e.id = ?
+                """, (payslip.get('employee_id'),))
+                
+                dept_row = cursor.fetchone()
+                if dept_row:
+                    payslip['department_name'] = dept_row[0]
+                    payslip['position_title'] = dept_row[1]
+            except Exception:
+                # If this query fails, we'll just continue without this info
+                payslip['department_name'] = ''
+                payslip['position_title'] = ''
             
+            # Try to get bank details if available
+            try:
+                cursor.execute("""
+                    SELECT 
+                        bank_name,
+                        bank_account,
+                        iban
+                    FROM employment_details
+                    WHERE employee_id = ?
+                """, (payslip.get('employee_id'),))
+                
+                bank_row = cursor.fetchone()
+                if bank_row:
+                    payslip['bank_name'] = bank_row[0]
+                    payslip['bank_account'] = bank_row[1]
+                    payslip['iban'] = bank_row[2]
+            except Exception:
+                # If this query fails, we'll just continue without this info
+                payslip['bank_name'] = ''
+                payslip['bank_account'] = ''
+                payslip['iban'] = ''
+            
+            # Get component details - first try payroll_entry_details
             payslip['components'] = []
-            for amount, type_, name, name_ar in cursor.fetchall():
-                payslip['components'].append({
-                    'amount': amount,
-                    'type': type_,
-                    'name': name,
-                    'name_ar': name_ar
-                })
+            try:
+                cursor.execute("""
+                    SELECT 
+                        ped.amount,
+                        ped.type,
+                        sc.name,
+                        sc.name_ar
+                    FROM payroll_entry_details ped
+                    JOIN salary_components sc ON ped.component_id = sc.id
+                    WHERE ped.payroll_entry_id = ?
+                    ORDER BY ped.type, sc.name
+                """, (entry_id,))
+                
+                for amount, type_, name, name_ar in cursor.fetchall():
+                    payslip['components'].append({
+                        'amount': amount,
+                        'type': type_,
+                        'name': name,
+                        'name_ar': name_ar
+                    })
+            except Exception:
+                # If this fails, try payroll_entry_components instead
+                try:
+                    cursor.execute("""
+                        SELECT 
+                            pec.value as amount,
+                            sc.type,
+                            sc.name,
+                            sc.name_ar
+                        FROM payroll_entry_components pec
+                        JOIN salary_components sc ON pec.component_id = sc.id
+                        WHERE pec.payroll_entry_id = ?
+                        ORDER BY sc.type, sc.name
+                    """, (entry_id,))
+                    
+                    for amount, type_, name, name_ar in cursor.fetchall():
+                        payslip['components'].append({
+                            'amount': amount,
+                            'type': type_,
+                            'name': name,
+                            'name_ar': name_ar
+                        })
+                except Exception:
+                    # If both fail, we'll just use the totals from the payroll_entries table
+                    if float(payslip.get('total_allowances', 0)) > 0:
+                        payslip['components'].append({
+                            'amount': payslip.get('total_allowances', 0),
+                            'type': 'allowance',
+                            'name': 'Total Allowances',
+                            'name_ar': 'إجمالي البدلات'
+                        })
+                    
+                    if float(payslip.get('total_deductions', 0)) > 0:
+                        payslip['components'].append({
+                            'amount': payslip.get('total_deductions', 0),
+                            'type': 'deduction',
+                            'name': 'Total Deductions',
+                            'name_ar': 'إجمالي الاستقطاعات'
+                        })
             
             return True, payslip
             
@@ -1414,29 +1534,118 @@ class PayrollController(QObject):
         finally:
             conn.close()
 
+    def get_employee_salary_history(self, employee_id, start_date=None, end_date=None):
+        """Get salary history for an employee with optional date range"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT 
+                    pe.id,
+                    pp.period_year,
+                    pp.period_month,
+                    pe.basic_salary,
+                    pe.total_allowances,
+                    pe.total_deductions,
+                    pe.total_adjustments,
+                    pe.working_days,
+                    pe.net_salary,
+                    pe.payment_method,
+                    pe.payment_status,
+                    pe.payment_date,
+                    pe.payment_reference,
+                    pp.start_date,
+                    pp.end_date
+                FROM payroll_entries pe
+                JOIN payroll_periods pp ON pe.payroll_period_id = pp.id
+                WHERE pe.employee_id = ?
+            """
+            
+            params = [employee_id]
+            
+            if start_date:
+                query += " AND pp.start_date >= ?"
+                params.append(start_date)
+                
+            if end_date:
+                query += " AND pp.end_date <= ?"
+                params.append(end_date)
+                
+            query += " ORDER BY pp.period_year DESC, pp.period_month DESC"
+            
+            cursor.execute(query, params)
+            
+            columns = [column[0] for column in cursor.description]
+            history = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            # Get components for each entry
+            for entry in history:
+                cursor.execute("""
+                    SELECT 
+                        pec.id,
+                        pec.component_id,
+                        sc.name,
+                        sc.name_ar,
+                        sc.type,
+                        pec.value
+                    FROM payroll_entry_components pec
+                    JOIN salary_components sc ON pec.component_id = sc.id
+                    WHERE pec.payroll_entry_id = ?
+                """, (entry['id'],))
+                
+                columns = [column[0] for column in cursor.description]
+                components = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                
+                entry['components'] = components
+            
+            return True, history
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
     def _calculate_working_days(
         self, 
         employee_id: int,
         start_date: date,
         end_date: date
     ) -> int:
-        """Calculate actual working days in the period"""
+        """Calculate actual working days for an employee in a period"""
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
-
-            # Get total days in period
+            
+            # Get total calendar days in period
             from datetime import datetime
             start = datetime.strptime(start_date, '%Y-%m-%d') if isinstance(start_date, str) else start_date
             end = datetime.strptime(end_date, '%Y-%m-%d') if isinstance(end_date, str) else end_date
-            total_days = (end - start).days + 1
             
-            # Get weekends and holidays
-            weekends = self._count_weekends(start, end)
+            # Get total working days (excluding weekends)
+            total_days = 0
+            current = start
+            while current <= end:
+                # Skip Friday and Saturday (weekend in Arabic countries)
+                if current.weekday() not in [4, 5]:  # 4=Friday, 5=Saturday
+                    total_days += 1
+                current = current.replace(day=current.day + 1)
             
-            # Get leaves for this employee in this period
+            # Get attendance records
             cursor.execute("""
-                SELECT SUM(total_days) FROM leaves 
+                SELECT COUNT(*) as present_days
+                FROM attendance
+                WHERE employee_id = ? 
+                AND date BETWEEN ? AND ?
+                AND status = 'present'
+            """, (employee_id, start_date, end_date))
+            
+            present_days = cursor.fetchone()[0]
+            
+            # Get approved leaves
+            cursor.execute("""
+                SELECT leave_type, start_date, end_date, total_days
+                FROM leaves
                 WHERE employee_id = ? 
                 AND status = 'approved'
                 AND (
@@ -1444,37 +1653,42 @@ class PayrollController(QObject):
                     (end_date BETWEEN ? AND ?) OR
                     (start_date <= ? AND end_date >= ?)
                 )
-            """, (
-                employee_id, 
-                start_date, end_date,
-                start_date, end_date,
-                start_date, end_date
-            ))
+            """, (employee_id, start_date, end_date, start_date, end_date, start_date, end_date))
             
-            leaves = cursor.fetchone()[0] or 0
+            leaves = cursor.fetchall()
+            paid_leave_days = 0
+            unpaid_leave_days = 0
             
-            # Get absences
-            cursor.execute("""
-                SELECT COUNT(*) FROM attendance 
-                WHERE employee_id = ? 
-                AND date BETWEEN ? AND ?
-                AND status = 'absent'
-            """, (employee_id, start_date, end_date))
+            for leave in leaves:
+                leave_type, leave_start, leave_end, leave_days = leave
+                
+                # Adjust leave dates to be within the period
+                leave_start_date = max(start, datetime.strptime(leave_start, '%Y-%m-%d'))
+                leave_end_date = min(end, datetime.strptime(leave_end, '%Y-%m-%d'))
+                
+                # Calculate days within period
+                leave_days_in_period = 0
+                current = leave_start_date
+                while current <= leave_end_date:
+                    # Skip weekends
+                    if current.weekday() not in [4, 5]:
+                        leave_days_in_period += 1
+                    current = current.replace(day=current.day + 1)
+                
+                # Categorize leave types
+                if leave_type.lower() in ['annual', 'sick', 'emergency']:
+                    paid_leave_days += leave_days_in_period
+                else:
+                    unpaid_leave_days += leave_days_in_period
             
-            absences = cursor.fetchone()[0] or 0
-            
-            # Calculate working days
-            working_days = total_days - weekends - leaves - absences
+            # Calculate actual working days
+            working_days = total_days - unpaid_leave_days
             
             return working_days
             
         except Exception as e:
-            print(f"Error calculating working days: {e}")
-            # Default to full month if there's an error
-            return self._get_period_working_days(
-                start.year if hasattr(start, 'year') else int(start_date.split('-')[0]),
-                start.month if hasattr(start, 'month') else int(start_date.split('-')[1])
-            )
+            print(f"Error calculating working days: {str(e)}")
+            return total_days  # Default to total days if there's an error
         finally:
             conn.close()
             

@@ -263,3 +263,181 @@ class SalaryController(QObject):
             return {}
         finally:
             conn.close()
+
+    def calculate_salary_projections(self, year, include_allowances=True, include_deductions=True, department_id=None):
+        """Calculate salary projections for budget planning"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Base query to get employees
+            query = """
+                SELECT 
+                    e.id, 
+                    e.name,
+                    e.basic_salary,
+                    e.department_id,
+                    d.name as department_name
+                FROM employees e
+                JOIN departments d ON e.department_id = d.id
+                WHERE e.is_active = 1
+            """
+            
+            params = []
+            
+            if department_id:
+                query += " AND e.department_id = ?"
+                params.append(department_id)
+                
+            cursor.execute(query, params)
+            
+            columns = [column[0] for column in cursor.description]
+            employees = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            # Calculate projections by month
+            monthly_projections = []
+            annual_total = 0
+            
+            for month in range(1, 13):
+                month_total = 0
+                
+                for emp in employees:
+                    # Get basic salary
+                    basic_salary = float(emp['basic_salary'])
+                    
+                    # Get allowances
+                    allowances = 0
+                    if include_allowances:
+                        cursor.execute("""
+                            SELECT 
+                                sc.id,
+                                esc.value,
+                                esc.percentage,
+                                esc.is_percentage
+                            FROM employee_salary_components esc
+                            JOIN salary_components sc ON esc.component_id = sc.id
+                            WHERE esc.employee_id = ? AND sc.type = 'allowance'
+                        """, (emp['id'],))
+                        
+                        for comp in cursor.fetchall():
+                            comp_id, value, percentage, is_percentage = comp
+                            if is_percentage:
+                                allowances += basic_salary * percentage / 100
+                            else:
+                                allowances += value
+                    
+                    # Get deductions
+                    deductions = 0
+                    if include_deductions:
+                        cursor.execute("""
+                            SELECT 
+                                sc.id,
+                                esc.value,
+                                esc.percentage,
+                                esc.is_percentage
+                            FROM employee_salary_components esc
+                            JOIN salary_components sc ON esc.component_id = sc.id
+                            WHERE esc.employee_id = ? AND sc.type = 'deduction'
+                        """, (emp['id'],))
+                        
+                        for comp in cursor.fetchall():
+                            comp_id, value, percentage, is_percentage = comp
+                            if is_percentage:
+                                deductions += basic_salary * percentage / 100
+                            else:
+                                deductions += value
+                    
+                    # Calculate net salary
+                    net_salary = basic_salary + allowances - deductions
+                    
+                    # Add to month total
+                    month_total += net_salary
+                
+                # Add month projection
+                monthly_projections.append({
+                    'month': month,
+                    'total': month_total
+                })
+                
+                # Add to annual total
+                annual_total += month_total
+            
+            # Calculate department totals
+            department_totals = {}
+            
+            for emp in employees:
+                dept_id = emp['department_id']
+                dept_name = emp['department_name']
+                
+                if dept_id not in department_totals:
+                    department_totals[dept_id] = {
+                        'id': dept_id,
+                        'name': dept_name,
+                        'total': 0
+                    }
+                
+                # Get basic salary
+                basic_salary = float(emp['basic_salary'])
+                
+                # Get allowances
+                allowances = 0
+                if include_allowances:
+                    cursor.execute("""
+                        SELECT 
+                            sc.id,
+                            esc.value,
+                            esc.percentage,
+                            esc.is_percentage
+                        FROM employee_salary_components esc
+                        JOIN salary_components sc ON esc.component_id = sc.id
+                        WHERE esc.employee_id = ? AND sc.type = 'allowance'
+                    """, (emp['id'],))
+                    
+                    for comp in cursor.fetchall():
+                        comp_id, value, percentage, is_percentage = comp
+                        if is_percentage:
+                            allowances += basic_salary * percentage / 100
+                        else:
+                            allowances += value
+                
+                # Get deductions
+                deductions = 0
+                if include_deductions:
+                    cursor.execute("""
+                        SELECT 
+                            sc.id,
+                            esc.value,
+                            esc.percentage,
+                            esc.is_percentage
+                        FROM employee_salary_components esc
+                        JOIN salary_components sc ON esc.component_id = sc.id
+                        WHERE esc.employee_id = ? AND sc.type = 'deduction'
+                    """, (emp['id'],))
+                    
+                    for comp in cursor.fetchall():
+                        comp_id, value, percentage, is_percentage = comp
+                        if is_percentage:
+                            deductions += basic_salary * percentage / 100
+                        else:
+                            deductions += value
+                
+                # Calculate net salary
+                net_salary = basic_salary + allowances - deductions
+                
+                # Add to department total (annual)
+                department_totals[dept_id]['total'] += net_salary * 12
+            
+            # Prepare result
+            result = {
+                'year': year,
+                'monthly_projections': monthly_projections,
+                'annual_total': annual_total,
+                'department_totals': list(department_totals.values())
+            }
+            
+            return True, result
+            
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()

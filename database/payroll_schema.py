@@ -58,9 +58,13 @@ PAYROLL_TABLES_SQL = {
             created_by INTEGER,
             updated_by INTEGER,
             approved_by INTEGER,
+            approved_at TIMESTAMP,
+            processed_by INTEGER,
+            processed_at TIMESTAMP,
             FOREIGN KEY (created_by) REFERENCES users (id),
             FOREIGN KEY (updated_by) REFERENCES users (id),
             FOREIGN KEY (approved_by) REFERENCES users (id),
+            FOREIGN KEY (processed_by) REFERENCES users (id),
             UNIQUE(period_year, period_month)
         )
     ''',

@@ -16,6 +16,7 @@ from ui.styles import Styles
 from controllers.employee_controller import EmployeeController
 from controllers.payroll_controller import PayrollController
 from database.database import Database
+from database.migration_runner import run_migrations
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -25,6 +26,10 @@ class MainWindow(QMainWindow):
         
         # Initialize database and controllers
         self.db = Database()
+        
+        # Run database migrations
+        self.run_migrations()
+        
         self.employee_controller = EmployeeController(self.db)
         self.payroll_controller = PayrollController(self.db)
         
@@ -269,6 +274,20 @@ class MainWindow(QMainWindow):
             if hasattr(self.stack.widget(3), 'refresh_data'):
                 self.stack.widget(3).refresh_data()
 
+    def run_migrations(self):
+        """Run database migrations and show results if there are any issues"""
+        migration_results = run_migrations(self.db)
+        
+        # Check for any failed migrations
+        failed_migrations = [result for result in migration_results if not result[1]]
+        
+        if failed_migrations:
+            error_message = "فشل تنفيذ بعض ترحيلات قاعدة البيانات:\n\n"
+            for migration, _, message in failed_migrations:
+                error_message += f"• {migration}: {message}\n"
+            
+            QMessageBox.warning(self, "خطأ في ترحيل قاعدة البيانات", error_message)
+            
 def main():
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)
