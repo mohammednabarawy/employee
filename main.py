@@ -2,7 +2,7 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QPushButton, QFrame, QStackedWidget,
                            QLabel, QSpacerItem, QSizePolicy, QToolButton, 
-                           QMenu, QAction, QMessageBox)
+                           QMenu, QAction, QMessageBox, QProgressDialog)
 from PyQt5.QtCore import Qt, QTimer, QSettings
 from PyQt5.QtGui import QIcon, QFont
 import qtawesome as qta
@@ -12,11 +12,17 @@ from ui.payroll_form import PayrollForm
 from ui.reports_form import ReportsForm
 from ui.dashboard import Dashboard
 from ui.styles import Styles
+from ui.login_form import LoginForm
+from ui.license_dialog import LicenseDialog
+from ui.database_manager_dialog import DatabaseManagerDialog
 
 from controllers.employee_controller import EmployeeController
 from controllers.payroll_controller import PayrollController
+from controllers.auth_controller import AuthController
 from database.database import Database
 from database.migration_runner import run_migrations
+from utils.licensing import LicenseManager
+from utils.backup_manager import BackupManager
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -24,21 +30,37 @@ class MainWindow(QMainWindow):
         # Initialize settings
         self.settings = QSettings("EmployeeApp", "Settings")
         
+        # Initialize licensing
+        self.license_manager = LicenseManager()
+        self.license_manager.license_invalid.connect(self.handle_invalid_license)
+        self.license_manager.license_expiring_soon.connect(self.handle_expiring_license)
+        
         # Initialize database and controllers
         self.db = Database()
+        
+        # Initialize backup manager
+        self.backup_manager = BackupManager(self.db.db_file)
         
         # Run database migrations
         self.run_migrations()
         
+        # Initialize controllers
         self.employee_controller = EmployeeController(self.db)
         self.payroll_controller = PayrollController(self.db)
+        self.auth_controller = AuthController(self.db)
+        
+        # Check if user is logged in
+        self.current_user = None
         
         # Initialize UI
         self.current_theme = self.settings.value("theme", "light")
-        self.init_ui()
         
-        # Apply saved theme
-        self.apply_theme(self.current_theme)
+        # Check license before showing UI
+        if not self.license_manager.validate_license():
+            self.show_login_screen()
+        else:
+            self.init_ui()
+            self.apply_theme(self.current_theme)
         
         # Auto-save timer (every 5 minutes)
         self.auto_save_timer = QTimer(self)
@@ -133,21 +155,45 @@ class MainWindow(QMainWindow):
         
         # Database actions
         db_menu = QMenu("قاعدة البيانات", settings_menu)
-        backup_action = QAction("نسخ احتياطي", db_menu)
-        restore_action = QAction("استعادة", db_menu)
-        recreate_action = QAction("إعادة إنشاء الجداول", db_menu)
         
+        # Add database management action
+        manage_db_action = QAction("إدارة قواعد البيانات", db_menu)
+        manage_db_action.triggered.connect(self.show_database_manager)
+        db_menu.addAction(manage_db_action)
+        
+        db_menu.addSeparator()
+        
+        # Add database actions
+        backup_action = QAction("إنشاء نسخة احتياطية", db_menu)
         backup_action.triggered.connect(self.backup_database)
-        restore_action.triggered.connect(self.restore_database)
-        recreate_action.triggered.connect(self.recreate_tables)
-        
         db_menu.addAction(backup_action)
+        
+        restore_action = QAction("استعادة من نسخة احتياطية", db_menu)
+        restore_action.triggered.connect(self.restore_database)
         db_menu.addAction(restore_action)
+        
+        export_action = QAction("تصدير البيانات", db_menu)
+        export_action.triggered.connect(self.export_data)
+        db_menu.addAction(export_action)
+        
+        recreate_action = QAction("إعادة إنشاء الجداول", db_menu)
+        recreate_action.triggered.connect(self.recreate_tables)
         db_menu.addAction(recreate_action)
         
         # Add menus to settings menu
         settings_menu.addMenu(theme_menu)
         settings_menu.addMenu(db_menu)
+        
+        # Add license menu
+        license_action = QAction("إدارة الترخيص", settings_menu)
+        license_action.triggered.connect(self.show_license_dialog)
+        settings_menu.addAction(license_action)
+        
+        # Add logout action
+        settings_menu.addSeparator()
+        logout_action = QAction("تسجيل الخروج", settings_menu)
+        logout_action.triggered.connect(self.logout)
+        settings_menu.addAction(logout_action)
         
         # Connect settings button to show menu
         settings_btn.clicked.connect(lambda: settings_menu.exec_(settings_btn.mapToGlobal(settings_btn.rect().bottomLeft())))
@@ -156,7 +202,9 @@ class MainWindow(QMainWindow):
         
         # Create stacked widget for main content
         self.stack = QStackedWidget()
-        self.stack.addWidget(Dashboard(self.employee_controller, self.payroll_controller, self.db))
+        self.dashboard = Dashboard(self.employee_controller, self.payroll_controller, self.db)
+        self.dashboard.update_db_info(self.db.db_file)  # Set initial database info
+        self.stack.addWidget(self.dashboard)
         self.stack.addWidget(EmployeeForm(self.employee_controller))
         self.stack.addWidget(PayrollForm(self.payroll_controller, self.employee_controller))
         self.stack.addWidget(ReportsForm(self.employee_controller, self.payroll_controller))
@@ -174,6 +222,9 @@ class MainWindow(QMainWindow):
         # Set initial page
         self.dashboard_btn.setChecked(True)
         self.stack.setCurrentIndex(0)
+        
+        # Create status bar
+        self.statusBar().showMessage(f"قاعدة البيانات الحالية: {self.db.db_file}")
         
     def create_nav_button(self, text, icon_name):
         btn = QPushButton()
@@ -222,8 +273,11 @@ class MainWindow(QMainWindow):
     def backup_database(self):
         """Backup the database"""
         try:
-            self.db.backup_database()
-            QMessageBox.information(self, "نجاح", "تم إنشاء نسخة احتياطية من قاعدة البيانات بنجاح")
+            success, message = self.backup_manager.create_backup(self)
+            if success:
+                QMessageBox.information(self, "نجاح", "تم إنشاء نسخة احتياطية من قاعدة البيانات بنجاح")
+            else:
+                QMessageBox.warning(self, "تحذير", message)
         except Exception as e:
             QMessageBox.critical(self, "خطأ", f"حدث خطأ أثناء إنشاء النسخة الاحتياطية: {str(e)}")
             
@@ -234,10 +288,13 @@ class MainWindow(QMainWindow):
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
-                self.db.restore_database()
-                QMessageBox.information(self, "نجاح", "تم استعادة قاعدة البيانات بنجاح")
-                # Refresh all views
-                self.refresh_all_views()
+                success, message = self.backup_manager.restore_backup(self)
+                if success:
+                    QMessageBox.information(self, "نجاح", "تم استعادة قاعدة البيانات بنجاح")
+                    # Refresh all views
+                    self.refresh_all_views()
+                else:
+                    QMessageBox.warning(self, "تحذير", message)
             except Exception as e:
                 QMessageBox.critical(self, "خطأ", f"حدث خطأ أثناء استعادة قاعدة البيانات: {str(e)}")
                 
@@ -287,7 +344,118 @@ class MainWindow(QMainWindow):
                 error_message += f"• {migration}: {message}\n"
             
             QMessageBox.warning(self, "خطأ في ترحيل قاعدة البيانات", error_message)
+    
+    def show_login_screen(self):
+        """Show the login screen"""
+        login_form = LoginForm(self.auth_controller)
+        login_form.login_successful.connect(self.handle_login_successful)
+        login_form.show()
+    
+    def handle_login_successful(self, user_data):
+        """Handle successful login"""
+        self.current_user = user_data
+        self.init_ui()
+        self.apply_theme(self.current_theme)
+        self.show()
+    
+    def handle_invalid_license(self, message):
+        """Handle invalid license"""
+        QMessageBox.warning(
+            self, 
+            "ترخيص غير صالح", 
+            f"الترخيص غير صالح أو منتهي الصلاحية: {message}\n\nيرجى تفعيل البرنامج للاستمرار."
+        )
+        self.show_license_dialog()
+    
+    def handle_expiring_license(self, days_remaining):
+        """Handle expiring license"""
+        QMessageBox.information(
+            self, 
+            "ترخيص على وشك الانتهاء", 
+            f"ترخيصك سينتهي خلال {days_remaining} يوم.\n\nيرجى تجديد الترخيص لتجنب انقطاع الخدمة."
+        )
+    
+    def show_license_dialog(self):
+        """Show the license dialog"""
+        dialog = LicenseDialog(self.license_manager, self)
+        dialog.exec_()
+        
+        # Check license again after dialog closes
+        if not self.license_manager.validate_license():
+            # If still invalid, exit application
+            QMessageBox.critical(
+                self, 
+                "ترخيص غير صالح", 
+                "لا يمكن استخدام البرنامج بدون ترخيص صالح.\n\nسيتم إغلاق البرنامج."
+            )
+            sys.exit(0)
             
+    def logout(self):
+        """Log out the current user"""
+        reply = QMessageBox.question(
+            self, 
+            "تأكيد تسجيل الخروج", 
+            "هل أنت متأكد من رغبتك في تسجيل الخروج؟",
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Hide main window
+            self.hide()
+            
+            # Reset current user
+            self.current_user = None
+            
+            # Show login screen
+            self.show_login_screen()
+            
+    def export_data(self):
+        """Export data to Excel or CSV"""
+        try:
+            success, message = self.backup_manager.export_data(self)
+            if success:
+                QMessageBox.information(self, "نجاح", "تم تصدير البيانات بنجاح")
+            else:
+                QMessageBox.warning(self, "تحذير", message)
+        except Exception as e:
+            QMessageBox.critical(self, "خطأ", f"حدث خطأ أثناء تصدير البيانات: {str(e)}")
+
+    def show_database_manager(self):
+        """Show the database manager dialog"""
+        dialog = DatabaseManagerDialog(self.db.db_file, self)
+        dialog.database_changed.connect(self.change_database)
+        dialog.exec_()
+    
+    def change_database(self, db_file):
+        """Change the current database file"""
+        try:
+            # Update the backup manager
+            self.backup_manager = BackupManager(db_file)
+            
+            # Update the database
+            success = self.db.change_database(db_file)
+            
+            if success:
+                # Refresh controllers
+                self.employee_controller = EmployeeController(self.db)
+                self.payroll_controller = PayrollController(self.db)
+                self.auth_controller = AuthController(self.db)
+                
+                # Refresh all views
+                self.refresh_all_views()
+                
+                # Update status bar
+                self.statusBar().showMessage(f"قاعدة البيانات الحالية: {db_file}", 5000)
+                
+                # Update dashboard
+                if hasattr(self, 'dashboard'):
+                    self.dashboard.update_db_info(db_file)
+                
+                QMessageBox.information(self, "نجاح", "تم تغيير قاعدة البيانات بنجاح")
+        except Exception as e:
+            QMessageBox.critical(self, "خطأ", f"حدث خطأ أثناء تغيير قاعدة البيانات: {str(e)}")
+
 def main():
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)

@@ -16,6 +16,12 @@ class Database:
             
         self.create_tables()
     
+    def change_database(self, new_db_file):
+        """Change the current database file"""
+        self.db_file = new_db_file
+        self.create_tables()
+        return True
+    
     def get_connection(self):
         conn = sqlite3.connect(self.db_file)
         conn.execute("PRAGMA foreign_keys = ON")

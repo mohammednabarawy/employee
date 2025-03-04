@@ -6,6 +6,7 @@ from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
 from datetime import datetime
 import jinja2
+from utils.company_info import CompanyInfo
 
 # Make pdfkit optional to avoid breaking the application if not installed
 try:
@@ -27,12 +28,30 @@ class ExportUtils:
             return False, str(e)
 
     @staticmethod
-    def generate_payslip_pdf(employee_data, salary_data, payment_data, filename):
+    def generate_payslip_pdf(employee_data, salary_data, payment_data, filename, db_file=None):
         """Generate PDF payslip"""
         try:
             doc = SimpleDocTemplate(filename, pagesize=letter)
             styles = getSampleStyleSheet()
             elements = []
+            
+            # Get company information if db_file is provided
+            company_name = None
+            commercial_register = None
+            if db_file:
+                company_name = CompanyInfo.get_company_name(db_file)
+                commercial_register = CompanyInfo.get_commercial_register(db_file)
+            
+            # Company info if available
+            if company_name:
+                company_title = Paragraph(company_name, styles['Title'])
+                elements.append(company_title)
+                
+                if commercial_register:
+                    company_reg = Paragraph(f"رقم السجل التجاري: {commercial_register}", styles['Normal'])
+                    elements.append(company_reg)
+                    
+                elements.append(Paragraph("<br/>", styles['Normal']))
 
             # Title
             title = Paragraph(f"Payslip - {employee_data['name']}", styles['Title'])

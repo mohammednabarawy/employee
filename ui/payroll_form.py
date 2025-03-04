@@ -472,6 +472,9 @@ class PayrollForm(QWidget):
         if not success:
             QMessageBox.warning(self, "خطأ", f"فشل استرجاع بيانات قسيمة الراتب: {payslip_data}")
             return
+        
+        # Add database file to payslip data for company info
+        payslip_data['db_file'] = self.payroll_controller.db.db_file
             
         # Print the payslip
         try:
@@ -503,6 +506,8 @@ class PayrollForm(QWidget):
             if entry_id:
                 success, payslip_data = self.payroll_controller.get_employee_payslip(entry_id)
                 if success:
+                    # Add database file to payslip data for company info
+                    payslip_data['db_file'] = self.payroll_controller.db.db_file
                     payslips_data.append(payslip_data)
         
         if not payslips_data:

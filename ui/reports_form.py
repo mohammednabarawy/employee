@@ -1,8 +1,13 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QComboBox, QTableWidget, QTableWidgetItem,
-                             QMessageBox, QDialog, QFormLayout, QSpinBox)
+                             QMessageBox, QDialog, QFormLayout, QSpinBox, QHeaderView, QFrame,
+                             )
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPainter, QTextDocument
+from PyQt5.QtChart import QChart, QChartView
+from PyQt5.QtPrintSupport import QPrinter, QPrintPreviewDialog
 from datetime import datetime
+from utils.company_info import CompanyInfo
 
 class ReportWidget(QWidget):
     def __init__(self, title):
@@ -69,16 +74,25 @@ class ReportsForm(QWidget):
         super().__init__()
         self.employee_controller = employee_controller
         self.payroll_controller = payroll_controller
+        self.db_file = self.employee_controller.db.db_file
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-
+        """Initialize the UI"""
+        # Create main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(20)
+        
+        # Create controls widget
+        self.controls_widget = QWidget()
+        controls_layout = QHBoxLayout(self.controls_widget)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Add title
         title = QLabel("التقارير")
         title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        controls_layout.addWidget(title)
 
         # Report type selector
         type_layout = QHBoxLayout()
@@ -93,7 +107,7 @@ class ReportsForm(QWidget):
         
         type_layout.addWidget(type_label)
         type_layout.addWidget(self.type_combo)
-        layout.addLayout(type_layout)
+        controls_layout.addLayout(type_layout)
 
         # Period selector for payroll reports
         period_layout = QHBoxLayout()
@@ -117,16 +131,23 @@ class ReportsForm(QWidget):
         period_layout.addWidget(self.year_combo)
         period_layout.addWidget(month_label)
         period_layout.addWidget(self.month_combo)
-        layout.addLayout(period_layout)
+        controls_layout.addLayout(period_layout)
 
         # Generate button
         self.generate_btn = QPushButton("إنشاء التقرير")
         self.generate_btn.clicked.connect(self.generate_report)
-        layout.addWidget(self.generate_btn)
+        controls_layout.addWidget(self.generate_btn)
+
+        # Print button
+        self.print_btn = QPushButton("طباعة التقرير")
+        self.print_btn.clicked.connect(self.print_report)
+        controls_layout.addWidget(self.print_btn)
+
+        main_layout.addWidget(self.controls_widget)
 
         # Report table
         self.report_table = QTableWidget()
-        layout.addWidget(self.report_table)
+        main_layout.addWidget(self.report_table)
 
         # Initially load employee report
         self.load_employee_report()
@@ -199,10 +220,168 @@ class ReportsForm(QWidget):
         self.report_table.setRowCount(0)
 
     def generate_report(self):
+        # Add company header
+        company_name = CompanyInfo.get_company_name(self.db_file)
+        commercial_register = CompanyInfo.get_commercial_register(self.db_file)
+        
+        # Set report title based on type
         report_type = self.type_combo.currentIndex()
+        report_title = self.type_combo.currentText()
+        
+        # Create header widget
+        header_widget = QWidget()
+        header_layout = QVBoxLayout(header_widget)
+        
+        # Add company name if available
+        if company_name:
+            company_label = QLabel(company_name)
+            company_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
+            company_label.setAlignment(Qt.AlignCenter)
+            header_layout.addWidget(company_label)
+            
+            # Add commercial register if available
+            if commercial_register:
+                register_label = QLabel(f"رقم السجل التجاري: {commercial_register}")
+                register_label.setAlignment(Qt.AlignCenter)
+                register_label.setStyleSheet("color: #7f8c8d;")
+                header_layout.addWidget(register_label)
+        
+        # Add report title
+        title_label = QLabel(f"تقرير {report_title}")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 10px;")
+        title_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(title_label)
+        
+        # Add date
+        date_label = QLabel(f"تاريخ التقرير: {datetime.now().strftime('%Y-%m-%d')}")
+        date_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(date_label)
+        
+        # Add separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        header_layout.addWidget(separator)
+        
+        # Clear previous report
+        for i in reversed(range(self.layout().count())):
+            widget = self.layout().itemAt(i).widget()
+            if widget and widget != self.controls_widget:
+                widget.deleteLater()
+        
+        # Add header to layout
+        self.layout().addWidget(header_widget)
+        
+        # Create report content widget
+        report_widget = QWidget()
+        report_layout = QVBoxLayout(report_widget)
+        
+        # Create table for report
+        self.report_table = QTableWidget()
+        self.report_table.setAlternatingRowColors(True)
+        self.report_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        report_layout.addWidget(self.report_table)
+        
+        # Add report to layout
+        self.layout().addWidget(report_widget)
+        
+        # Load report data based on type
         if report_type == 0:
             self.load_employee_report()
         elif report_type == 1:
             self.load_payroll_report()
         elif report_type == 2:
             self.load_attendance_report()
+
+    def print_report(self):
+        """Print the current report"""
+        # Get company information
+        company_name = CompanyInfo.get_company_name(self.db_file)
+        commercial_register = CompanyInfo.get_commercial_register(self.db_file)
+        
+        # Create printer
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPrinter.A4)
+        
+        # Show print preview dialog
+        preview = QPrintPreviewDialog(printer, self)
+        preview.paintRequested.connect(lambda p: self.print_preview(p, company_name, commercial_register))
+        preview.exec_()
+        
+    def print_preview(self, printer, company_name, commercial_register):
+        """Handle print preview"""
+        # Create document
+        document = QTextDocument()
+        
+        # Get report title
+        report_type = self.type_combo.currentText()
+        
+        # Create HTML content
+        html = f"""
+        <!DOCTYPE html>
+        <html dir="rtl">
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; direction: rtl; }}
+                .header {{ text-align: center; margin-bottom: 20px; }}
+                .company-name {{ font-size: 18px; font-weight: bold; }}
+                .company-info {{ font-size: 12px; color: #666; margin-bottom: 10px; }}
+                .title {{ font-size: 16px; font-weight: bold; margin: 10px 0; }}
+                table {{ width: 100%; border-collapse: collapse; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: right; }}
+                th {{ background-color: #f2f2f2; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+        """
+        
+        # Add company info if available
+        if company_name:
+            html += f'<div class="company-name">{company_name}</div>'
+            if commercial_register:
+                html += f'<div class="company-info">رقم السجل التجاري: {commercial_register}</div>'
+        
+        # Add report title and date
+        html += f"""
+                <div class="title">تقرير {report_type}</div>
+                <div>تاريخ التقرير: {datetime.now().strftime('%Y-%m-%d')}</div>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+        """
+        
+        # Add table headers
+        for col in range(self.report_table.columnCount()):
+            header_text = self.report_table.horizontalHeaderItem(col).text()
+            html += f'<th>{header_text}</th>'
+        
+        html += """
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        # Add table data
+        for row in range(self.report_table.rowCount()):
+            html += '<tr>'
+            for col in range(self.report_table.columnCount()):
+                item = self.report_table.item(row, col)
+                text = item.text() if item else ''
+                html += f'<td>{text}</td>'
+            html += '</tr>'
+        
+        html += """
+                </tbody>
+            </table>
+        </body>
+        </html>
+        """
+        
+        # Set HTML content
+        document.setHtml(html)
+        
+        # Print document
+        document.print_(printer)

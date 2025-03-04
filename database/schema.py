@@ -1,6 +1,24 @@
 from .payroll_schema import PAYROLL_TABLES_SQL
 
 SCHEMA = {
+    'company_info': '''
+        CREATE TABLE IF NOT EXISTS company_info (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_name TEXT NOT NULL,
+            commercial_register_number TEXT,
+            social_insurance_number TEXT,
+            tax_number TEXT,
+            address TEXT,
+            phone TEXT,
+            email TEXT,
+            website TEXT,
+            logo_data BLOB,
+            logo_mime_type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
     'users': '''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

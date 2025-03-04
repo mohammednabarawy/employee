@@ -9,6 +9,7 @@ from PyQt5.QtGui import QFont, QPixmap, QPainter, QTextDocument
 from PyQt5.QtPrintSupport import QPrintPreviewDialog, QPrinter
 import qtawesome as qta
 from datetime import datetime
+from utils.company_info import CompanyInfo
 
 class PayslipTemplate:
     """Class to generate HTML payslip template for printing"""
@@ -24,6 +25,19 @@ class PayslipTemplate:
         Returns:
             str: HTML template for the payslip
         """
+        # Get company information
+        db_file = payslip_data.get('db_file', None)
+        company_name = "شركة"  # Default company name
+        commercial_register = ""
+        social_insurance = ""
+        tax_number = ""
+        
+        if db_file:
+            company_name = CompanyInfo.get_company_name(db_file) or company_name
+            commercial_register = CompanyInfo.get_commercial_register(db_file) or ""
+            social_insurance = CompanyInfo.get_social_insurance(db_file) or ""
+            tax_number = CompanyInfo.get_tax_number(db_file) or ""
+        
         # Get Arabic month name
         month_names = [
             "يناير", "فبراير", "مارس", "إبريل", "مايو", "يونيو",
@@ -65,9 +79,10 @@ class PayslipTemplate:
         except (ValueError, TypeError):
             payment_date = ''
         
-        # Company info
-        company_name = "شركة نظام إدارة الموظفين"
-        company_address = "الرياض، المملكة العربية السعودية"
+        # Create conditional HTML for company info
+        commercial_register_html = f'<div class="company-info">السجل التجاري: {commercial_register}</div>' if commercial_register else ''
+        social_insurance_html = f'<div class="company-info">رقم التأمينات الاجتماعية: {social_insurance}</div>' if social_insurance else ''
+        tax_number_html = f'<div class="company-info">الرقم الضريبي: {tax_number}</div>' if tax_number else ''
         
         # Employee info
         employee_name = payslip_data.get('employee_name_ar', payslip_data.get('employee_name', 'موظف'))
@@ -129,8 +144,15 @@ class PayslipTemplate:
                     padding-bottom: 10px;
                 }}
                 .company-name {{
-                    font-size: 24px;
+                    font-size: 20px;
                     font-weight: bold;
+                    margin-bottom: 5px;
+                    color: #2c3e50;
+                }}
+                .company-info {{
+                    font-size: 12px;
+                    color: #7f8c8d;
+                    margin-bottom: 10px;
                 }}
                 .payslip-title {{
                     font-size: 18px;
@@ -203,6 +225,9 @@ class PayslipTemplate:
             <div class="payslip">
                 <div class="header">
                     <div class="company-name">{company_name}</div>
+                    {commercial_register_html}
+                    {social_insurance_html}
+                    {tax_number_html}
                     <div class="payslip-title">قسيمة الراتب</div>
                     <div class="period">الفترة: {month_name} {payslip_data.get('period_year', '')}</div>
                 </div>
