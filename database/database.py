@@ -14,12 +14,30 @@ class Database:
         if not os.path.exists(self.backup_dir):
             os.makedirs(self.backup_dir)
             
+        # Check if the database file exists
+        db_exists = os.path.exists(db_file)
+        
+        # Create tables or validate schema
         self.create_tables()
+        
+        # If the database already existed, validate and fix its schema
+        if db_exists:
+            self.validate_schema()
     
     def change_database(self, new_db_file):
         """Change the current database file"""
         self.db_file = new_db_file
+        
+        # Check if the database file exists
+        db_exists = os.path.exists(new_db_file)
+        
+        # Create tables if needed
         self.create_tables()
+        
+        # If the database already existed, validate and fix its schema
+        if db_exists:
+            self.validate_schema()
+            
         return True
     
     def get_connection(self):
@@ -41,6 +59,8 @@ class Database:
                 'employees',
                 'salary_components',
                 'employee_salary_components',
+                'salaries',
+                'salary_payments',
                 'payment_methods',
                 'payroll_periods',
                 'payroll_entries',
@@ -176,6 +196,8 @@ class Database:
                 'employees',
                 'salary_components',
                 'employee_salary_components',
+                'salaries',
+                'salary_payments',
                 'payment_methods',
                 'payroll_periods',
                 'payroll_entries',
@@ -208,54 +230,123 @@ class Database:
         finally:
             conn.close()
 
+    def validate_schema(self):
+        """Validate and fix the database schema if needed"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Get all tables in the database
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [table[0] for table in cursor.fetchall()]
+            
+            # Check for missing tables
+            for table_name in SCHEMA:
+                if table_name not in tables:
+                    print(f"Creating missing table: {table_name}")
+                    cursor.execute(SCHEMA[table_name])
+            
+            # Check if payroll_entries has required columns
+            if 'payroll_entries' in tables:
+                cursor.execute("PRAGMA table_info(payroll_entries)")
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                if 'gross_salary' not in columns:
+                    print("Adding missing column 'gross_salary' to payroll_entries table")
+                    cursor.execute("ALTER TABLE payroll_entries ADD COLUMN gross_salary REAL DEFAULT 0")
+                    cursor.execute("UPDATE payroll_entries SET gross_salary = basic_salary + total_allowances")
+                
+                if 'payment_date' not in columns:
+                    print("Adding missing column 'payment_date' to payroll_entries table")
+                    cursor.execute("ALTER TABLE payroll_entries ADD COLUMN payment_date DATE")
+                    cursor.execute("UPDATE payroll_entries SET payment_date = date('now')")
+            
+            # Check if salaries table exists
+            if 'salaries' not in tables:
+                print("Creating missing 'salaries' table")
+                cursor.execute(SCHEMA['salaries'])
+            
+            # Check if salary_payments table exists
+            if 'salary_payments' not in tables:
+                print("Creating missing 'salary_payments' table")
+                cursor.execute(SCHEMA['salary_payments'])
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            print("Error validating schema:", str(e))
+        finally:
+            conn.close()
+            
     def backup_database(self):
         """Create a backup of the database"""
         try:
-            # Create backup filename with timestamp
+            # Generate backup filename with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_path = os.path.join(self.backup_dir, f"employee_backup_{timestamp}.db")
+            backup_filename = f"backup_{timestamp}.db"
+            backup_path = os.path.join(self.backup_dir, backup_filename)
             
-            # Copy the database file
+            # Copy the database file to the backup location
             shutil.copy2(self.db_file, backup_path)
             
-            # Clean up old backups (keep only the 5 most recent)
-            self._cleanup_old_backups()
+            # Clean up old backups (keep only the 10 most recent)
+            self._cleanup_old_backups(10)
             
-            print(f"Database backed up to {backup_path}")
-            return backup_path
+            return True, f"Database backed up to {backup_path}"
         except Exception as e:
-            print(f"Error backing up database: {e}")
-            raise e
+            return False, f"Error backing up database: {str(e)}"
             
-    def restore_database(self, backup_path=None):
-        """Restore database from a backup"""
+    def restore_database(self, backup_file):
+        """Restore database from a backup file"""
         try:
-            # If no backup path specified, use the most recent backup
-            if not backup_path:
-                backups = self._get_backups()
-                if not backups:
-                    raise Exception("No backups found")
-                backup_path = backups[0]  # Most recent backup
+            # Check if the backup file exists
+            if not os.path.exists(backup_file):
+                return False, "Backup file does not exist"
             
-            # Close any open connections
-            # This is a simplistic approach; in a real app, you'd need to ensure
-            # all connections are closed before restoring
+            # Create a backup of the current database before restoring
+            current_backup_result, current_backup_message = self.backup_database()
+            if not current_backup_result:
+                return False, f"Failed to create backup before restore: {current_backup_message}"
             
-            # Copy the backup file to the database path
-            shutil.copy2(backup_path, self.db_file)
+            # Copy the backup file to the database file
+            shutil.copy2(backup_file, self.db_file)
             
-            print(f"Database restored from {backup_path}")
-            return True
+            # Validate and fix the schema of the restored database
+            self.validate_schema()
+            
+            return True, "Database restored successfully"
         except Exception as e:
-            print(f"Error restoring database: {e}")
-            raise e
+            return False, f"Error restoring database: {str(e)}"
             
+    def import_database(self, import_file):
+        """Import a database from a file"""
+        try:
+            # Check if the import file exists
+            if not os.path.exists(import_file):
+                return False, "Import file does not exist"
+            
+            # Create a backup before importing
+            backup_result, backup_message = self.backup_database()
+            if not backup_result:
+                return False, f"Failed to create backup before import: {backup_message}"
+            
+            # Copy the import file to the database file
+            shutil.copy2(import_file, self.db_file)
+            
+            # Validate and fix the schema of the imported database
+            self.validate_schema()
+            
+            return True, "Database imported successfully"
+        except Exception as e:
+            return False, f"Error importing database: {str(e)}"
+    
     def _get_backups(self):
         """Get a list of available backups, sorted by date (newest first)"""
         try:
             backups = []
             for filename in os.listdir(self.backup_dir):
-                if filename.startswith("employee_backup_") and filename.endswith(".db"):
+                if filename.startswith("backup_") and filename.endswith(".db"):
                     backup_path = os.path.join(self.backup_dir, filename)
                     backups.append(backup_path)
             
@@ -266,16 +357,20 @@ class Database:
             print(f"Error getting backups: {e}")
             return []
             
-    def _cleanup_old_backups(self, keep=5):
-        """Remove old backups, keeping only the specified number"""
+    def _cleanup_old_backups(self, keep_count=10):
+        """Clean up old backups, keeping only the specified number of most recent backups"""
         try:
+            # Get all backups sorted by date (newest first)
             backups = self._get_backups()
-            if len(backups) > keep:
-                for old_backup in backups[keep:]:
+            
+            # If we have more backups than we want to keep
+            if len(backups) > keep_count:
+                # Remove the oldest backups
+                for old_backup in backups[keep_count:]:
                     os.remove(old_backup)
                     print(f"Removed old backup: {old_backup}")
         except Exception as e:
-            print(f"Error cleaning up old backups: {e}")
+            print(f"Error cleaning up old backups: {str(e)}")
             
     def get_database_stats(self):
         """Get statistics about the database"""

@@ -15,27 +15,14 @@ class SalaryController(QObject):
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
+            # First check if the employee exists
+            cursor.execute("SELECT id FROM employees WHERE id = ?", (employee_id,))
+            if not cursor.fetchone():
+                return False, f"Employee with ID {employee_id} not found"
+            
             # Check if salary record exists
             cursor.execute("SELECT id FROM salaries WHERE employee_id = ?", (employee_id,))
             salary_record = cursor.fetchone()
-            
-            if salary_record:
-                query = """
-                    UPDATE salaries SET
-                        base_salary = ?,
-                        bonuses = ?,
-                        deductions = ?,
-                        overtime_pay = ?,
-                        total_salary = ?
-                    WHERE employee_id = ?
-                """
-            else:
-                query = """
-                    INSERT INTO salaries (
-                        employee_id, base_salary, bonuses,
-                        deductions, overtime_pay, total_salary
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                """
             
             total_salary = (
                 salary_data['base_salary'] +
@@ -44,14 +31,40 @@ class SalaryController(QObject):
                 salary_data['deductions']
             )
             
-            params = (
-                salary_data['base_salary'],
-                salary_data['bonuses'],
-                salary_data['deductions'],
-                salary_data['overtime_pay'],
-                total_salary,
-                employee_id
-            )
+            if salary_record:
+                query = """
+                    UPDATE salaries SET
+                        base_salary = ?,
+                        bonuses = ?,
+                        deductions = ?,
+                        overtime_pay = ?,
+                        total_salary = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE employee_id = ?
+                """
+                params = (
+                    salary_data['base_salary'],
+                    salary_data['bonuses'],
+                    salary_data['deductions'],
+                    salary_data['overtime_pay'],
+                    total_salary,
+                    employee_id
+                )
+            else:
+                query = """
+                    INSERT INTO salaries (
+                        employee_id, base_salary, bonuses,
+                        deductions, overtime_pay, total_salary
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """
+                params = (
+                    employee_id,
+                    salary_data['base_salary'],
+                    salary_data['bonuses'],
+                    salary_data['deductions'],
+                    salary_data['overtime_pay'],
+                    total_salary
+                )
             
             cursor.execute(query, params)
             conn.commit()

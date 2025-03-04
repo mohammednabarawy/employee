@@ -41,6 +41,34 @@ PAYROLL_TABLES_SQL = {
         )
     ''',
     
+    'salaries': '''
+        CREATE TABLE IF NOT EXISTS salaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            base_salary REAL NOT NULL,
+            bonuses REAL DEFAULT 0,
+            deductions REAL DEFAULT 0,
+            overtime_pay REAL DEFAULT 0,
+            total_salary REAL NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        )
+    ''',
+    
+    'salary_payments': '''
+        CREATE TABLE IF NOT EXISTS salary_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            amount_paid REAL NOT NULL,
+            payment_date DATE NOT NULL,
+            payment_mode TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        )
+    ''',
+    
     'payroll_periods': '''
         CREATE TABLE IF NOT EXISTS payroll_periods (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,9 +106,10 @@ PAYROLL_TABLES_SQL = {
             total_allowances DECIMAL(10,2) DEFAULT 0,
             total_deductions DECIMAL(10,2) DEFAULT 0,
             net_salary DECIMAL(10,2) NOT NULL,
+            gross_salary DECIMAL(10,2) DEFAULT 0,
+            payment_date DATE,
             payment_method TEXT,
             payment_status TEXT DEFAULT 'pending',  -- pending, paid, failed
-            payment_date DATE,
             payment_reference TEXT,
             notes TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

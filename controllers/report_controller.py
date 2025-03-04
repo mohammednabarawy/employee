@@ -23,7 +23,38 @@ class ReportController(QObject):
             GROUP BY e.id
             ORDER BY d.name, e.name
         """
-        return self._execute_query(query)
+        
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # First check if the payroll_entries table has the required columns
+            cursor.execute("PRAGMA table_info(payroll_entries)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'gross_salary' not in columns or 'payment_date' not in columns:
+                # Fall back to a simpler query that will work with the existing structure
+                alternative_query = f"""
+                    SELECT 
+                        e.name AS employee_name,
+                        d.name AS department,
+                        SUM(p.basic_salary + p.total_allowances) AS total_gross,
+                        SUM(p.net_salary) AS total_net,
+                        COUNT(p.id) AS payment_count
+                    FROM payroll_entries p
+                    JOIN employees e ON p.employee_id = e.id
+                    JOIN departments d ON e.department_id = d.id
+                    WHERE p.created_at BETWEEN '{start_date}' AND '{end_date}'
+                    GROUP BY e.id
+                    ORDER BY d.name, e.name
+                """
+                return self._execute_query(alternative_query)
+            
+            return self._execute_query(query)
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
 
     def generate_attendance_report(self, month, year):
         """Generate monthly attendance summary"""
