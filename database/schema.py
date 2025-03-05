@@ -42,6 +42,7 @@ SCHEMA = {
             name_ar TEXT,
             department_id INTEGER,
             position_id INTEGER,
+            shift_id INTEGER,
             basic_salary REAL DEFAULT 0,
             hire_date DATE NOT NULL,
             birth_date DATE,
@@ -62,7 +63,8 @@ SCHEMA = {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (department_id) REFERENCES departments (id),
-            FOREIGN KEY (position_id) REFERENCES positions (id)
+            FOREIGN KEY (position_id) REFERENCES positions (id),
+            FOREIGN KEY (shift_id) REFERENCES shifts (id)
         )
     ''',
     

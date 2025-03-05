@@ -1,4 +1,5 @@
 import sys
+import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QPushButton, QFrame, QStackedWidget,
                            QLabel, QSpacerItem, QSizePolicy, QToolButton, 
@@ -7,6 +8,7 @@ from PyQt5.QtCore import Qt, QTimer, QSettings
 from PyQt5.QtGui import QIcon, QFont
 import qtawesome as qta
 
+# Update imports to match new directory structure
 from ui.employee_form import EmployeeForm
 from ui.payroll_form import PayrollForm
 from ui.reports_form import ReportsForm

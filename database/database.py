@@ -56,6 +56,7 @@ class Database:
                 'users',
                 'departments',
                 'positions',
+                'shifts',
                 'employees',
                 'salary_components',
                 'employee_salary_components',
@@ -69,9 +70,22 @@ class Database:
                 'employment_details',
                 'employee_allowances',
                 'attendance',
+                'attendance_records',
+                'pay_grades',
                 'leaves',
                 'loans',
-                'audit_log'
+                'audit_log',
+                'company_info',
+                'loan_payments',
+                'documents',
+                'settings',
+                'salary_adjustments',
+                'tax_brackets',
+                'employee_benefits',
+                'deductions',
+                'payslip_templates',
+                'salary_structures',
+                'employee_salary_structure'
             ]
             
             # Create tables in correct order

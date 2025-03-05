@@ -46,10 +46,12 @@ PAYROLL_TABLES_SQL = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id INTEGER NOT NULL,
             base_salary REAL NOT NULL,
+            allowances REAL DEFAULT 0,
             bonuses REAL DEFAULT 0,
             deductions REAL DEFAULT 0,
             overtime_pay REAL DEFAULT 0,
             total_salary REAL NOT NULL,
+            effective_date DATE DEFAULT CURRENT_DATE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (employee_id) REFERENCES employees(id)
@@ -159,6 +161,115 @@ PAYROLL_TABLES_SQL = {
             is_active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
+    'tax_brackets': '''
+        CREATE TABLE IF NOT EXISTS tax_brackets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tax_year INTEGER NOT NULL,
+            min_income REAL NOT NULL,
+            max_income REAL,
+            rate REAL NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
+    'employee_benefits': '''
+        CREATE TABLE IF NOT EXISTS employee_benefits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            benefit_type TEXT NOT NULL,
+            amount REAL NOT NULL,
+            is_percentage INTEGER DEFAULT 0,
+            start_date DATE NOT NULL,
+            end_date DATE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        )
+    ''',
+    
+    'deductions': '''
+        CREATE TABLE IF NOT EXISTS deductions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            deduction_type TEXT NOT NULL,
+            amount REAL NOT NULL,
+            is_percentage INTEGER DEFAULT 0,
+            recurring INTEGER DEFAULT 1,
+            start_date DATE NOT NULL,
+            end_date DATE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        )
+    ''',
+    
+    'payslip_templates': '''
+        CREATE TABLE IF NOT EXISTS payslip_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_name TEXT NOT NULL,
+            template_html TEXT NOT NULL,
+            is_default INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
+    'salary_structures': '''
+        CREATE TABLE IF NOT EXISTS salary_structures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            structure_name TEXT NOT NULL,
+            base_percentage REAL NOT NULL,
+            allowance_percentage REAL NOT NULL,
+            bonus_percentage REAL NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
+    'employee_salary_structure': '''
+        CREATE TABLE IF NOT EXISTS employee_salary_structure (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            structure_id INTEGER NOT NULL,
+            effective_date DATE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id),
+            FOREIGN KEY (structure_id) REFERENCES salary_structures(id)
+        )
+    ''',
+    
+    'shifts': '''
+        CREATE TABLE IF NOT EXISTS shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shift_name TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            max_regular_hours REAL DEFAULT 8,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''',
+    
+    'attendance_records': '''
+        CREATE TABLE IF NOT EXISTS attendance_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            check_in TIMESTAMP NOT NULL,
+            check_out TIMESTAMP,
+            total_hours REAL,
+            status TEXT DEFAULT 'present',
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        )
+    ''',
+    
+    'pay_grades': '''
+        CREATE TABLE IF NOT EXISTS pay_grades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            grade_name TEXT NOT NULL,
+            min_salary REAL NOT NULL,
+            max_salary REAL NOT NULL,
+            overtime_rate REAL DEFAULT 1.5,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     '''
 }
