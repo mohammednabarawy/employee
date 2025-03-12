@@ -1334,205 +1334,149 @@ class PayrollController(QObject):
     def update_payroll_entry(self, period_id, employee_id, values):
         """Update a payroll entry with new values"""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            # Validate inputs
+            validation_result, message = self.validate_salary_transaction(values)
+            if not validation_result:
+                return False, message
             
-            # Check period status
-            cursor.execute("""
-                SELECT status FROM payroll_periods
-                WHERE id = ?
-            """, (period_id,))
+            # Get current entry
+            query = """
+                SELECT pe.*, e.employee_type_id, et.name as employee_type
+                FROM payroll_entries pe
+                JOIN employees e ON pe.employee_id = e.id
+                JOIN employee_types et ON e.employee_type_id = et.id
+                WHERE pe.id = ?
+            """
             
-            period = cursor.fetchone()
-            if not period:
-                return False, "فترة الرواتب غير موجودة"
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (values['id'],))
+                entry = cursor.fetchone()
                 
-            if period[0] not in ['draft', 'processing']:
-                return False, "لا يمكن تعديل فترة معتمدة"
-            
-            # Start transaction
-            cursor.execute("BEGIN TRANSACTION")
-            
-            try:
-                # Update basic salary and payment method
-                cursor.execute("""
-                    UPDATE payroll_entries 
-                    SET basic_salary = ?,
-                        payment_method = ?,
-                        notes = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE payroll_period_id = ? AND employee_id = ?
-                """, (
-                    values['basic_salary'],
-                    values['payment_method'],
+                if not entry:
+                    return False, "Payroll entry not found"
+                
+                if entry['payment_status'] == 'paid':
+                    return False, "Cannot modify a paid entry"
+                
+                # Calculate new values
+                new_values = {}
+                for key, value in values.items():
+                    if key in entry:
+                        new_values[key] = float(entry[key]) + value
+                
+                # Update entry
+                set_clause = ', '.join([f"{k} = ?" for k in new_values.keys()])
+                values = list(new_values.values())
+                values.extend([
                     values['notes'],
-                    period_id,
-                    employee_id
-                ))
+                    values['updated_by'],
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    values['id']
+                ])
                 
-                # Update allowances
-                for comp_id, value in values['allowances'].items():
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO payroll_entry_components (
-                            payroll_entry_id, component_id, value
-                        ) VALUES (
-                            (SELECT id FROM payroll_entries 
-                             WHERE payroll_period_id = ? AND employee_id = ?),
-                            ?, ?
-                        )
-                    """, (period_id, employee_id, comp_id, value))
-                
-                # Update deductions
-                for comp_id, value in values['deductions'].items():
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO payroll_entry_components (
-                            payroll_entry_id, component_id, value
-                        ) VALUES (
-                            (SELECT id FROM payroll_entries 
-                             WHERE payroll_period_id = ? AND employee_id = ?),
-                            ?, ?
-                        )
-                    """, (period_id, employee_id, comp_id, value))
-                
-                # Recalculate totals
-                cursor.execute("""
+                update_query = f"""
                     UPDATE payroll_entries 
-                    SET total_allowances = (
-                        SELECT COALESCE(SUM(pec.value), 0)
-                        FROM payroll_entry_components pec
-                        JOIN salary_components sc ON pec.component_id = sc.id
-                        WHERE pec.payroll_entry_id = payroll_entries.id
-                        AND sc.type = 'allowance'
-                    ),
-                    total_deductions = (
-                        SELECT COALESCE(SUM(pec.value), 0)
-                        FROM payroll_entry_components pec
-                        JOIN salary_components sc ON pec.component_id = sc.id
-                        WHERE pec.payroll_entry_id = payroll_entries.id
-                        AND sc.type = 'deduction'
-                    ),
-                    net_salary = basic_salary + (
-                        SELECT COALESCE(SUM(CASE WHEN sc.type = 'allowance' THEN pec.value ELSE -pec.value END), 0)
-                        FROM payroll_entry_components pec
-                        JOIN salary_components sc ON pec.component_id = sc.id
-                        WHERE pec.payroll_entry_id = payroll_entries.id
-                    ),
-                    updated_at = CURRENT_TIMESTAMP
-                    WHERE payroll_period_id = ? AND employee_id = ?
-                """, (period_id, employee_id))
+                    SET {set_clause},
+                        adjustment_reason = ?,
+                        updated_by = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """
                 
+                cursor.execute(update_query, values)
                 conn.commit()
-                return True, "تم تحديث البيانات بنجاح"
                 
-            except Exception as e:
-                cursor.execute("ROLLBACK")
-                raise e
-            
+                return True, "Payroll entry updated successfully"
+                
         except Exception as e:
-            return False, str(e)
-        finally:
-            conn.close()
+            return False, f"Error updating payroll entry: {str(e)}"
 
     def update_payroll_entry(
-        self, 
-        entry_id: int,
-        adjustments: Dict[str, float],
-        reason: str,
-        updated_by: int
-    ) -> Tuple[bool, str]:
-        """Update a payroll entry with adjustments"""
+            self, 
+            entry_id: int,
+            adjustments: Dict[str, float],
+            reason: str,
+            updated_by: int
+        ) -> Tuple[bool, str]:
+        """Update a payroll entry with adjustments and sync with employee details"""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-
-            # Get entry details
-            cursor.execute("""
-                SELECT 
-                    pe.employee_id,
-                    pe.basic_salary,
-                    pe.total_allowances,
-                    pe.total_deductions,
-                    pe.total_adjustments,
-                    pe.net_salary,
-                    pp.period_year,
-                    pp.period_month
+            # Validate adjustments
+            validation_result, message = self.validate_salary_transaction(adjustments)
+            if not validation_result:
+                return False, message
+            
+            # Get current entry
+            query = """
+                SELECT pe.*, e.employee_type_id, et.name as employee_type
                 FROM payroll_entries pe
-                JOIN payroll_periods pp ON pe.payroll_period_id = pp.id
+                JOIN employees e ON pe.employee_id = e.id
+                JOIN employee_types et ON e.employee_type_id = et.id
                 WHERE pe.id = ?
-            """, (entry_id,))
-
-            row = cursor.fetchone()
-            if not row:
-                return False, "سجل الراتب غير موجود"
-
-            (
-                employee_id, basic_salary, total_allowances,
-                total_deductions, total_adjustments, net_salary,
-                period_year, period_month
-            ) = row
-
-            # Calculate new totals
-            new_basic = adjustments.get('basic_salary', basic_salary)
-            new_allowances = adjustments.get('total_allowances', total_allowances)
-            new_deductions = adjustments.get('total_deductions', total_deductions)
-            new_adjustments = adjustments.get('total_adjustments', total_adjustments)
-
-            new_net = (
-                new_basic +
-                new_allowances -
-                new_deductions +
-                new_adjustments
-            )
-
-            # Update entry
-            cursor.execute("""
-                UPDATE payroll_entries SET
-                    basic_salary = ?,
-                    total_allowances = ?,
-                    total_deductions = ?,
-                    total_adjustments = ?,
-                    net_salary = ?,
-                    updated_at = CURRENT_TIMESTAMP,
-                    updated_by = ?
-                WHERE id = ?
-            """, (
-                new_basic, new_allowances,
-                new_deductions, new_adjustments,
-                new_net, updated_by, entry_id
-            ))
-
-            # Log the adjustment
-            cursor.execute("""
-                INSERT INTO payroll_adjustments (
-                    entry_id, previous_amount,
-                    adjusted_amount, reason,
-                    created_by, created_at
-                ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (
-                entry_id, net_salary,
-                new_net, reason,
-                updated_by
-            ))
-
-            # If this affects basic salary, create a salary adjustment record
-            if new_basic != basic_salary:
-                self.employee_details.update_employee_salary(
-                    employee_id=employee_id,
-                    basic_salary=new_basic,
-                    effective_date=date(period_year, period_month, 1),
-                    reason=reason,
-                    adjustment_type='increase' if new_basic > basic_salary else 'decrease',
-                    created_by=updated_by
-                )
-
-            conn.commit()
-            return True, None
-
+            """
+            
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (entry_id,))
+                entry = cursor.fetchone()
+                
+                if not entry:
+                    return False, "Payroll entry not found"
+                
+                if entry['payment_status'] == 'paid':
+                    return False, "Cannot modify a paid entry"
+                
+                # Calculate new values
+                new_values = {}
+                for key, value in adjustments.items():
+                    if key in entry:
+                        new_values[key] = float(entry[key]) + value
+                
+                # Update entry
+                set_clause = ', '.join([f"{k} = ?" for k in new_values.keys()])
+                values = list(new_values.values())
+                values.extend([
+                    reason,
+                    updated_by,
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    entry_id
+                ])
+                
+                update_query = f"""
+                    UPDATE payroll_entries 
+                    SET {set_clause},
+                        adjustment_reason = ?,
+                        updated_by = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """
+                
+                cursor.execute(update_query, values)
+                conn.commit()
+                
+                return True, "Payroll entry updated successfully"
+                
         except Exception as e:
-            conn.rollback()
-            return False, str(e)
-        finally:
-            conn.close()
+            return False, f"Error updating payroll entry: {str(e)}"
+
+    def validate_salary_transaction(self, adjustments: Dict[str, float]) -> Tuple[bool, str]:
+        """Validate salary adjustments before applying them"""
+        try:
+            # Check for negative values
+            for key, value in adjustments.items():
+                if value < 0 and key not in ['deductions', 'tax_deductions', 'social_insurance']:
+                    return False, f"Invalid negative value for {key}"
+            
+            # Validate allowance types
+            allowance_types = ['transportation', 'housing', 'medical']
+            for key in adjustments.keys():
+                if 'allowance' in key.lower() and key.split('_')[0] not in allowance_types:
+                    return False, f"Invalid allowance type: {key}"
+            
+            return True, "Validation successful"
+            
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
 
     def get_employee_salary_history(self, employee_id, start_date=None, end_date=None):
         """Get salary history for an employee with optional date range"""
@@ -1614,84 +1558,31 @@ class PayrollController(QObject):
     ) -> int:
         """Calculate actual working days for an employee in a period"""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
+            # Get attendance data from attendance controller
+            from .attendance_controller import AttendanceController
+            attendance_ctrl = AttendanceController(self.db)
             
-            # Get total calendar days in period
-            from datetime import datetime
-            start = datetime.strptime(start_date, '%Y-%m-%d') if isinstance(start_date, str) else start_date
-            end = datetime.strptime(end_date, '%Y-%m-%d') if isinstance(end_date, str) else end_date
+            attendance_data = attendance_ctrl.get_attendance_data_for_period(
+                employee_id,
+                start_date,
+                end_date
+            )
             
-            # Get total working days (excluding weekends)
-            total_days = 0
-            current = start
-            while current <= end:
-                # Skip Friday and Saturday (weekend in Arabic countries)
-                if current.weekday() not in [4, 5]:  # 4=Friday, 5=Saturday
-                    total_days += 1
-                current = current.replace(day=current.day + 1)
+            if attendance_data:
+                return attendance_data.get('present_days', 0)
             
-            # Get attendance records
-            cursor.execute("""
-                SELECT COUNT(*) as present_days
-                FROM attendance
-                WHERE employee_id = ? 
-                AND date BETWEEN ? AND ?
-                AND status = 'present'
-            """, (employee_id, start_date, end_date))
+            # If no attendance data, return total working days minus weekends
+            total_days = (end_date - start_date).days + 1
+            weekend_days = self._count_weekends(start_date, end_date)
+            return total_days - weekend_days
             
-            present_days = cursor.fetchone()[0]
-            
-            # Get approved leaves
-            cursor.execute("""
-                SELECT leave_type, start_date, end_date, total_days
-                FROM leaves
-                WHERE employee_id = ? 
-                AND status = 'approved'
-                AND (
-                    (start_date BETWEEN ? AND ?) OR
-                    (end_date BETWEEN ? AND ?) OR
-                    (start_date <= ? AND end_date >= ?)
-                )
-            """, (employee_id, start_date, end_date, start_date, end_date, start_date, end_date))
-            
-            leaves = cursor.fetchall()
-            paid_leave_days = 0
-            unpaid_leave_days = 0
-            
-            for leave in leaves:
-                leave_type, leave_start, leave_end, leave_days = leave
-                
-                # Adjust leave dates to be within the period
-                leave_start_date = max(start, datetime.strptime(leave_start, '%Y-%m-%d'))
-                leave_end_date = min(end, datetime.strptime(leave_end, '%Y-%m-%d'))
-                
-                # Calculate days within period
-                leave_days_in_period = 0
-                current = leave_start_date
-                while current <= leave_end_date:
-                    # Skip weekends
-                    if current.weekday() not in [4, 5]:
-                        leave_days_in_period += 1
-                    current = current.replace(day=current.day + 1)
-                
-                # Categorize leave types
-                if leave_type.lower() in ['annual', 'sick', 'emergency']:
-                    paid_leave_days += leave_days_in_period
-                else:
-                    unpaid_leave_days += leave_days_in_period
-            
-            # Calculate actual working days
-            working_days = total_days - unpaid_leave_days
-            
-            return working_days
-            
-        except Exception as e:
-            print(f"Error calculating working days: {str(e)}")
-            return total_days  # Default to total days if there's an error
-        finally:
-            conn.close()
-            
+        except Exception:
+            # In case of error, return full month working days
+            return self._get_period_working_days(
+                start_date.year,
+                start_date.month
+            )
+        
     def _count_weekends(self, start_date, end_date):
         """Count weekend days between two dates"""
         from datetime import timedelta
@@ -1704,7 +1595,7 @@ class PayrollController(QObject):
         while current_date <= end_date:
             if current_date.weekday() in weekend_days:
                 count += 1
-            current_date += timedelta(days=1)
+            current_date = current_date.replace(day=current_date.day + 1)
             
         return count
         
@@ -1803,5 +1694,275 @@ class PayrollController(QObject):
         except Exception as e:
             print(f"Error getting recent payroll entries: {str(e)}")
             return []
+        finally:
+            conn.close()
+
+    def calculate_tax_deductions(self, gross_salary: Decimal) -> Decimal:
+        """Calculate tax deductions using progressive tax brackets"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get tax brackets for current year
+            current_year = date.today().year
+            cursor.execute("""
+                SELECT min_income, max_income, rate
+                FROM tax_brackets
+                WHERE tax_year = ?
+                ORDER BY min_income
+            """, (current_year,))
+            
+            brackets = cursor.fetchall()
+            if not brackets:
+                return Decimal('0')
+                
+            total_tax = Decimal('0')
+            remaining_income = gross_salary
+            
+            for min_income, max_income, rate in brackets:
+                if remaining_income <= 0:
+                    break
+                    
+                # Calculate taxable amount in this bracket
+                if max_income is None:
+                    taxable_amount = remaining_income
+                else:
+                    taxable_amount = min(remaining_income, max_income - min_income)
+                
+                # Calculate tax for this bracket
+                tax = taxable_amount * Decimal(str(rate))
+                total_tax += tax
+                
+                # Update remaining income
+                remaining_income -= taxable_amount
+            
+            return total_tax
+            
+        except Exception as e:
+            self.log_error(f"Tax calculation error: {str(e)}")
+            return Decimal('0')
+        finally:
+            conn.close()
+
+    def calculate_social_insurance(self, basic_salary: Decimal) -> Decimal:
+        """Calculate social insurance deductions"""
+        try:
+            # Get social insurance rates from configuration
+            employee_rate = Decimal('0.11')  # 11% employee contribution
+            max_insurable = Decimal('9000')  # Maximum insurable salary
+            
+            # Calculate insurable salary
+            insurable_salary = min(basic_salary, max_insurable)
+            
+            # Calculate social insurance deduction
+            return insurable_salary * employee_rate
+            
+        except Exception as e:
+            self.log_error(f"Social insurance calculation error: {str(e)}")
+            return Decimal('0')
+
+    def calculate_overtime_pay(self, employee_id: int, period_id: int) -> Decimal:
+        """Calculate overtime pay for the period"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get period dates
+            cursor.execute("""
+                SELECT start_date, end_date
+                FROM payroll_periods
+                WHERE id = ?
+            """, (period_id,))
+            
+            period = cursor.fetchone()
+            if not period:
+                return Decimal('0')
+                
+            start_date, end_date = period
+            
+            # Get overtime hours and rate
+            cursor.execute("""
+                SELECT SUM(hours), overtime_rate
+                FROM overtime_records
+                WHERE employee_id = ? 
+                AND date BETWEEN ? AND ?
+                AND status = 'approved'
+            """, (employee_id, start_date, end_date))
+            
+            result = cursor.fetchone()
+            if not result or not result[0]:
+                return Decimal('0')
+                
+            total_hours, rate = result
+            
+            # Get hourly rate (assuming 22 working days per month, 8 hours per day)
+            success, salary_info = self.get_employee_salary(employee_id)
+            if not success:
+                return Decimal('0')
+                
+            hourly_rate = Decimal(str(salary_info['basic_salary'])) / Decimal('176')  # 22 * 8
+            
+            # Calculate overtime pay
+            return hourly_rate * Decimal(str(rate)) * Decimal(str(total_hours))
+            
+        except Exception as e:
+            self.log_error(f"Overtime calculation error: {str(e)}")
+            return Decimal('0')
+        finally:
+            conn.close()
+
+    def calculate_salary_by_employee_type(
+            self,
+            employee_id: int,
+            basic_salary: Decimal,
+            period_id: int
+        ) -> Tuple[Decimal, Dict[str, Decimal]]:
+        """Calculate salary based on employee type with appropriate adjustments"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Get employee type
+            cursor.execute("""
+                SELECT et.* 
+                FROM employee_types et
+                JOIN employees e ON e.employee_type_id = et.id
+                WHERE e.id = ?
+            """, (employee_id,))
+            
+            emp_type = cursor.fetchone()
+            if not emp_type:
+                return basic_salary, {}
+                
+            type_id, _, _, working_hours, overtime_mult, holiday_mult, prorated = emp_type
+            
+            # Get period dates
+            cursor.execute("""
+                SELECT start_date, end_date
+                FROM payroll_periods
+                WHERE id = ?
+            """, (period_id,))
+            
+            period = cursor.fetchone()
+            if not period:
+                return basic_salary, {}
+                
+            start_date, end_date = period
+            
+            adjustments = {}
+            
+            # Calculate prorated salary for part-time
+            if working_hours < 40:
+                proration_factor = Decimal(str(working_hours)) / Decimal('40')
+                basic_salary = basic_salary * proration_factor
+                adjustments['proration'] = basic_salary * (Decimal('1') - proration_factor)
+            
+            # Calculate holiday pay
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM public_holidays 
+                WHERE date BETWEEN ? AND ?
+            """, (start_date, end_date))
+            
+            holiday_count = cursor.fetchone()[0]
+            if holiday_count > 0 and holiday_mult > 1:
+                daily_rate = basic_salary / Decimal('22')  # Assuming 22 working days
+                holiday_pay = daily_rate * Decimal(str(holiday_count)) * (Decimal(str(holiday_mult)) - Decimal('1'))
+                adjustments['holiday_pay'] = holiday_pay
+            
+            # Calculate leave deductions
+            cursor.execute("""
+                SELECT lt.paid, COUNT(*) as days
+                FROM leave_requests lr
+                JOIN leave_types lt ON lr.leave_type_id = lt.id
+                WHERE lr.employee_id = ?
+                AND lr.status = 'approved'
+                AND lr.start_date BETWEEN ? AND ?
+                GROUP BY lt.paid
+            """, (employee_id, start_date, end_date))
+            
+            for paid, days in cursor.fetchall():
+                if not paid:
+                    daily_rate = basic_salary / Decimal('22')
+                    leave_deduction = daily_rate * Decimal(str(days))
+                    adjustments['unpaid_leave'] = leave_deduction
+            
+            # Calculate overtime with type-specific multiplier
+            cursor.execute("""
+                SELECT SUM(hours)
+                FROM overtime_records
+                WHERE employee_id = ?
+                AND date BETWEEN ? AND ?
+                AND status = 'approved'
+            """, (employee_id, start_date, end_date))
+            
+            total_overtime = cursor.fetchone()[0] or 0
+            if total_overtime > 0:
+                hourly_rate = basic_salary / Decimal('176')  # 22 days * 8 hours
+                overtime_pay = hourly_rate * Decimal(str(total_overtime)) * Decimal(str(overtime_mult))
+                adjustments['overtime'] = overtime_pay
+            
+            return basic_salary, adjustments
+            
+        except Exception as e:
+            self.log_error(f"Error calculating type-based salary: {str(e)}")
+            return basic_salary, {}
+        finally:
+            conn.close()
+
+    def calculate_tax_exempt_allowances(
+            self,
+            employee_id: int,
+            basic_salary: Decimal
+        ) -> Tuple[Decimal, Decimal]:
+        """Calculate tax-exempt and taxable portions of allowances"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    sc.value,
+                    sc.percentage,
+                    tea.max_amount,
+                    tea.max_percentage
+                FROM salary_components sc
+                LEFT JOIN tax_exempt_allowances tea ON sc.name = tea.name
+                WHERE sc.type = 'allowance'
+                AND sc.id IN (
+                    SELECT component_id 
+                    FROM employee_salary_components 
+                    WHERE employee_id = ?
+                    AND is_active = 1
+                )
+            """, (employee_id,))
+            
+            total_allowances = Decimal('0')
+            tax_exempt_amount = Decimal('0')
+            
+            for value, percentage, max_amount, max_percentage in cursor.fetchall():
+                # Calculate actual allowance amount
+                if percentage:
+                    allowance = basic_salary * Decimal(str(percentage)) / Decimal('100')
+                else:
+                    allowance = Decimal(str(value))
+                
+                total_allowances += allowance
+                
+                # Calculate tax exempt portion
+                if max_amount and max_percentage:
+                    # Use whichever gives the lower exempt amount
+                    percent_exempt = allowance * Decimal(str(max_percentage)) / Decimal('100')
+                    tax_exempt_amount += min(Decimal(str(max_amount)), percent_exempt)
+                elif max_amount:
+                    tax_exempt_amount += min(allowance, Decimal(str(max_amount)))
+                elif max_percentage:
+                    tax_exempt_amount += allowance * Decimal(str(max_percentage)) / Decimal('100')
+            
+            return total_allowances, tax_exempt_amount
+            
+        except Exception as e:
+            self.log_error(f"Error calculating tax-exempt allowances: {str(e)}")
+            return Decimal('0'), Decimal('0')
         finally:
             conn.close()

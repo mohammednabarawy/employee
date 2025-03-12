@@ -3,26 +3,27 @@ import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QPushButton, QFrame, QStackedWidget,
                            QLabel, QSpacerItem, QSizePolicy, QToolButton, 
-                           QMenu, QAction, QMessageBox, QProgressDialog)
-from PyQt5.QtCore import Qt, QTimer, QSettings
-from PyQt5.QtGui import QIcon, QFont
+                           QMessageBox, QMenu, QAction, QFileDialog, QInputDialog,
+                           QDialog)
+from PyQt5.QtCore import Qt, QSettings, QTimer
+from PyQt5.QtGui import QFont
 import qtawesome as qta
+from datetime import datetime
 
-# Update imports to match new directory structure
-from ui.employee_form import EmployeeForm
-from ui.payroll_form import PayrollForm
-from ui.reports_form import ReportsForm
-from ui.dashboard import Dashboard
-from ui.styles import Styles
-from ui.login_form import LoginForm
-from ui.license_dialog import LicenseDialog
-from ui.database_manager_dialog import DatabaseManagerDialog
-
+from database.database import Database
+from database.migration_runner import run_migrations
 from controllers.employee_controller import EmployeeController
 from controllers.payroll_controller import PayrollController
 from controllers.auth_controller import AuthController
-from database.database import Database
-from database.migration_runner import run_migrations
+from controllers.attendance_controller import AttendanceController
+from ui.dashboard import Dashboard
+from ui.employee_form import EmployeeForm
+from ui.payroll_form import PayrollForm
+from ui.reports_form import ReportsForm
+from ui.login_form import LoginForm
+from ui.license_dialog import LicenseDialog
+from ui.database_manager_dialog import DatabaseManagerDialog
+from ui.styles import Styles
 from utils.licensing import LicenseManager
 from utils.backup_manager import BackupManager
 
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
         self.employee_controller = EmployeeController(self.db)
         self.payroll_controller = PayrollController(self.db)
         self.auth_controller = AuthController(self.db)
+        self.attendance_controller = AttendanceController(self.db)
         
         # Check if user is logged in
         self.current_user = None
@@ -202,28 +204,35 @@ class MainWindow(QMainWindow):
         
         sidebar_layout.addWidget(settings_btn)
         
-        # Create stacked widget for main content
-        self.stack = QStackedWidget()
+        # Create stacked widget for content
+        self.stacked_widget = QStackedWidget()
+        
+        # Initialize forms
         self.dashboard = Dashboard(self.employee_controller, self.payroll_controller, self.db)
         self.dashboard.update_db_info(self.db.db_file)  # Set initial database info
-        self.stack.addWidget(self.dashboard)
-        self.stack.addWidget(EmployeeForm(self.employee_controller))
-        self.stack.addWidget(PayrollForm(self.payroll_controller, self.employee_controller))
-        self.stack.addWidget(ReportsForm(self.employee_controller, self.payroll_controller))
+        self.employee_form = EmployeeForm(self.employee_controller)
+        self.payroll_form = PayrollForm(self.payroll_controller, self.employee_controller, self.attendance_controller)
+        self.reports_form = ReportsForm(self.employee_controller, self.payroll_controller, self.attendance_controller)
+        
+        # Add widgets to stacked widget
+        self.stacked_widget.addWidget(self.dashboard)
+        self.stacked_widget.addWidget(self.employee_form)
+        self.stacked_widget.addWidget(self.payroll_form)
+        self.stacked_widget.addWidget(self.reports_form)
         
         # Add sidebar and stack to main layout
         layout.addWidget(sidebar)
-        layout.addWidget(self.stack)
+        layout.addWidget(self.stacked_widget)
         
         # Connect buttons
-        self.dashboard_btn.clicked.connect(lambda: self.switch_page(0))
-        self.employee_btn.clicked.connect(lambda: self.switch_page(1))
-        self.payroll_btn.clicked.connect(lambda: self.switch_page(2))
-        self.reports_btn.clicked.connect(lambda: self.switch_page(3))
+        self.dashboard_btn.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.dashboard))
+        self.employee_btn.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.employee_form))
+        self.payroll_btn.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.payroll_form))
+        self.reports_btn.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.reports_form))
         
         # Set initial page
         self.dashboard_btn.setChecked(True)
-        self.stack.setCurrentIndex(0)
+        self.stacked_widget.setCurrentWidget(self.dashboard)
         
         # Create status bar
         self.statusBar().showMessage(f"قاعدة البيانات الحالية: {self.db.db_file}")
@@ -252,9 +261,6 @@ class MainWindow(QMainWindow):
         layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
         return btn
-        
-    def switch_page(self, index):
-        self.stack.setCurrentIndex(index)
         
     def apply_theme(self, theme):
         """Apply the selected theme to the application"""
@@ -317,21 +323,21 @@ class MainWindow(QMainWindow):
     def refresh_all_views(self):
         """Refresh all views in the application"""
         # Refresh dashboard
-        if isinstance(self.stack.widget(0), Dashboard):
-            self.stack.widget(0).refresh_data()
+        if isinstance(self.stacked_widget.widget(0), Dashboard):
+            self.stacked_widget.widget(0).refresh_data()
             
         # Refresh employee form
-        if isinstance(self.stack.widget(1), EmployeeForm):
-            self.stack.widget(1).load_employees()
+        if isinstance(self.stacked_widget.widget(1), EmployeeForm):
+            self.stacked_widget.widget(1).load_employees()
             
         # Refresh payroll form
-        if isinstance(self.stack.widget(2), PayrollForm):
-            self.stack.widget(2).load_periods()
+        if isinstance(self.stacked_widget.widget(2), PayrollForm):
+            self.stacked_widget.widget(2).load_periods()
             
         # Refresh reports form
-        if isinstance(self.stack.widget(3), ReportsForm):
-            if hasattr(self.stack.widget(3), 'refresh_data'):
-                self.stack.widget(3).refresh_data()
+        if isinstance(self.stacked_widget.widget(3), ReportsForm):
+            if hasattr(self.stacked_widget.widget(3), 'refresh_data'):
+                self.stacked_widget.widget(3).refresh_data()
 
     def run_migrations(self):
         """Run database migrations and show results if there are any issues"""
@@ -443,6 +449,7 @@ class MainWindow(QMainWindow):
                 self.employee_controller = EmployeeController(self.db)
                 self.payroll_controller = PayrollController(self.db)
                 self.auth_controller = AuthController(self.db)
+                self.attendance_controller = AttendanceController(self.db)
                 
                 # Refresh all views
                 self.refresh_all_views()

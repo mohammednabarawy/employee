@@ -429,6 +429,153 @@ class SalaryAttendanceTest:
             self.results["failed"] += 1
             self.results["errors"].append(f"Payslip generation failed: {str(e)}")
     
+    def test_payroll_calculations(self):
+        """Test payroll calculations including tax, insurance, and overtime"""
+        print("\nTesting payroll calculations...")
+        
+        try:
+            # Test tax calculation
+            from decimal import Decimal
+            
+            # Test case 1: Basic salary below first bracket
+            salary = Decimal('900')
+            tax = self.salary_controller.calculate_tax_deductions(salary)
+            assert tax == Decimal('0'), f"Expected 0 tax for salary {salary}, got {tax}"
+            print("✓ Tax calculation - below first bracket")
+            self.results["passed"] += 1
+            
+            # Test case 2: Basic salary in second bracket
+            salary = Decimal('3000')
+            tax = self.salary_controller.calculate_tax_deductions(salary)
+            expected = Decimal('200')  # (3000-1000) * 0.1
+            assert tax == expected, f"Expected {expected} tax for salary {salary}, got {tax}"
+            print("✓ Tax calculation - second bracket")
+            self.results["passed"] += 1
+            
+            # Test case 3: Basic salary across multiple brackets
+            salary = Decimal('12000')
+            tax = self.salary_controller.calculate_tax_deductions(salary)
+            expected = Decimal('2900')  # (1000*0 + 4000*0.1 + 5000*0.2 + 2000*0.3)
+            assert tax == expected, f"Expected {expected} tax for salary {salary}, got {tax}"
+            print("✓ Tax calculation - multiple brackets")
+            self.results["passed"] += 1
+            
+            # Test social insurance calculation
+            salary = Decimal('10000')
+            insurance = self.salary_controller.calculate_social_insurance(salary)
+            expected = Decimal('990')  # min(10000, 9000) * 0.11
+            assert insurance == expected, f"Expected {expected} insurance for salary {salary}, got {insurance}"
+            print("✓ Social insurance calculation")
+            self.results["passed"] += 1
+            
+            # Test overtime calculation
+            # First, add some overtime records
+            overtime_date = datetime.now().strftime('%Y-%m-%d')
+            self.db.execute_query(f"""
+                INSERT INTO overtime_records (
+                    employee_id, date, hours, overtime_rate, status
+                ) VALUES (
+                    {self.employee_id}, '{overtime_date}', 4, 1.5, 'approved'
+                )
+            """)
+            
+            overtime = self.salary_controller.calculate_overtime_pay(self.employee_id, self.period_id)
+            hourly_rate = Decimal('5000') / Decimal('176')  # Basic salary / (22 * 8)
+            expected = hourly_rate * Decimal('1.5') * Decimal('4')
+            assert overtime == expected, f"Expected {expected} overtime pay, got {overtime}"
+            print("✓ Overtime calculation")
+            self.results["passed"] += 1
+            
+        except AssertionError as e:
+            print(f"✗ {str(e)}")
+            self.results["failed"] += 1
+            self.results["errors"].append(str(e))
+        except Exception as e:
+            print(f"✗ Unexpected error in payroll calculations: {str(e)}")
+            self.results["failed"] += 1
+            self.results["errors"].append(str(e))
+
+    def test_attendance_integration(self):
+        """Test attendance integration with payroll"""
+        print("\nTesting attendance integration...")
+        
+        try:
+            # Create attendance records for the month
+            current_date = datetime.now().replace(day=1)
+            end_date = (current_date.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            
+            while current_date <= end_date:
+                if current_date.weekday() < 5:  # Monday to Friday
+                    # Random attendance status
+                    is_present = random.random() > 0.2  # 80% attendance rate
+                    
+                    if is_present:
+                        self.db.execute_query(f"""
+                            INSERT INTO attendance_records (
+                                employee_id, date, check_in, check_out,
+                                total_hours, status
+                            ) VALUES (
+                                {self.employee_id},
+                                '{current_date.strftime('%Y-%m-%d')}',
+                                '{current_date.strftime('%Y-%m-%d')} 09:00:00',
+                                '{current_date.strftime('%Y-%m-%d')} 17:00:00',
+                                8,
+                                'present'
+                            )
+                        """)
+                    else:
+                        self.db.execute_query(f"""
+                            INSERT INTO attendance_records (
+                                employee_id, date, status
+                            ) VALUES (
+                                {self.employee_id},
+                                '{current_date.strftime('%Y-%m-%d')}',
+                                'absent'
+                            )
+                        """)
+                
+                current_date += timedelta(days=1)
+            
+            # Get attendance summary
+            attendance_data = self.attendance_controller.get_attendance_data_for_period(
+                self.employee_id,
+                self.period_id
+            )
+            
+            assert attendance_data is not None, "Failed to get attendance data"
+            assert 'present_days' in attendance_data, "Missing present days in attendance data"
+            assert 'absent_days' in attendance_data, "Missing absent days in attendance data"
+            print("✓ Attendance data retrieval")
+            self.results["passed"] += 1
+            
+            # Test payroll generation with attendance
+            success, entries = self.salary_controller.generate_payroll(self.period_id)
+            assert success, "Failed to generate payroll"
+            assert len(entries) > 0, "No payroll entries generated"
+            
+            entry = next((e for e in entries if e['employee_id'] == self.employee_id), None)
+            assert entry is not None, "Employee payroll entry not found"
+            
+            # Verify attendance deductions
+            working_days = attendance_data['total_days']
+            present_days = attendance_data['present_days']
+            daily_rate = Decimal('5000') / Decimal(str(working_days))
+            expected_deduction = daily_rate * Decimal(str(working_days - present_days))
+            
+            assert abs(Decimal(str(entry['absence_deduction'])) - expected_deduction) < Decimal('0.01'), \
+                f"Expected absence deduction {expected_deduction}, got {entry['absence_deduction']}"
+            print("✓ Attendance deduction calculation")
+            self.results["passed"] += 1
+            
+        except AssertionError as e:
+            print(f"✗ {str(e)}")
+            self.results["failed"] += 1
+            self.results["errors"].append(str(e))
+        except Exception as e:
+            print(f"✗ Unexpected error in attendance integration: {str(e)}")
+            self.results["failed"] += 1
+            self.results["errors"].append(str(e))    
+
     def run_all_tests(self):
         """Run all tests and report results"""
         print("Starting salary and attendance system tests...")
@@ -441,6 +588,8 @@ class SalaryAttendanceTest:
         self.test_attendance_system()
         self.test_salary_calculation()
         self.test_payslip_generation()
+        self.test_payroll_calculations()
+        self.test_attendance_integration()
         
         # Report results
         print("\n=== TEST RESULTS ===")

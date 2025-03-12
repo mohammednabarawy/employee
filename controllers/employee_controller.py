@@ -48,7 +48,20 @@ class EmployeeController(QObject):
             for field in required_fields:
                 if not employee_data.get(field):
                     return False, f"الحقل {field} مطلوب"
-                    
+            
+            # Ensure department_id is set
+            if not employee_data.get('department_id'):
+                # Try to get the first department if not specified
+                conn = self.db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM departments LIMIT 1")
+                default_dept = cursor.fetchone()
+                
+                if default_dept:
+                    employee_data['department_id'] = default_dept[0]
+                else:
+                    return False, "لا يوجد قسم متاح. يرجى إضافة قسم أولاً"
+            
             conn = self.db.get_connection()
             cursor = conn.cursor()
             
@@ -457,10 +470,11 @@ class EmployeeController(QObject):
                         employee['photo_mime_type']
                     )
             
-            return True, employees
+            return employees
             
         except Exception as e:
-            return False, str(e)
+            print(f"Error getting employees: {str(e)}")
+            return []
         finally:
             conn.close()
 

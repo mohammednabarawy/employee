@@ -70,10 +70,11 @@ class ChartReport(ReportWidget):
         self.content_layout.addWidget(self.chart_view)
 
 class ReportsForm(QWidget):
-    def __init__(self, employee_controller, payroll_controller):
+    def __init__(self, employee_controller, payroll_controller, attendance_controller):
         super().__init__()
         self.employee_controller = employee_controller
         self.payroll_controller = payroll_controller
+        self.attendance_controller = attendance_controller
         self.db_file = self.employee_controller.db.db_file
         self.init_ui()
 
@@ -161,22 +162,22 @@ class ReportsForm(QWidget):
             self.load_attendance_report()
 
     def load_employee_report(self):
+        employees = self.employee_controller.get_all_employees()
+        
         self.report_table.setColumnCount(6)
         self.report_table.setHorizontalHeaderLabels([
             "الرقم", "الاسم", "القسم", "تاريخ التعيين",
             "الراتب الأساسي", "الحالة"
         ])
         
-        success, employees = self.employee_controller.get_all_employees()
-        if success:
-            self.report_table.setRowCount(len(employees))
-            for i, emp in enumerate(employees):
-                self.report_table.setItem(i, 0, QTableWidgetItem(str(emp['id'])))
-                self.report_table.setItem(i, 1, QTableWidgetItem(emp['name']))
-                self.report_table.setItem(i, 2, QTableWidgetItem(emp.get('department_name', '')))
-                self.report_table.setItem(i, 3, QTableWidgetItem(str(emp['hire_date'])))
-                self.report_table.setItem(i, 4, QTableWidgetItem(f"{float(emp['basic_salary']):,.2f}"))
-                self.report_table.setItem(i, 5, QTableWidgetItem(emp.get('employee_status', 'نشط')))
+        self.report_table.setRowCount(len(employees))
+        for i, emp in enumerate(employees):
+            self.report_table.setItem(i, 0, QTableWidgetItem(str(emp['id'])))
+            self.report_table.setItem(i, 1, QTableWidgetItem(emp['name']))
+            self.report_table.setItem(i, 2, QTableWidgetItem(emp.get('department_name', '')))
+            self.report_table.setItem(i, 3, QTableWidgetItem(str(emp['hire_date'])))
+            self.report_table.setItem(i, 4, QTableWidgetItem(f"{float(emp['basic_salary']):,.2f}"))
+            self.report_table.setItem(i, 5, QTableWidgetItem(emp.get('employee_status', 'نشط')))
         
         self.report_table.resizeColumnsToContents()
 
@@ -184,10 +185,10 @@ class ReportsForm(QWidget):
         year = int(self.year_combo.currentText())
         month = self.month_combo.currentIndex() + 1
         
-        self.report_table.setColumnCount(7)
+        self.report_table.setColumnCount(9)
         self.report_table.setHorizontalHeaderLabels([
-            "الموظف", "الراتب الأساسي", "البدلات",
-            "الاستقطاعات", "صافي الراتب", "طريقة الدفع", "الحالة"
+            "الموظف", "الراتب الأساسي", "أيام الحضور", "أيام الغياب",
+            "البدلات", "الخصومات", "خصم الغياب", "صافي الراتب", "الحالة"
         ])
         
         success, period_id = self.payroll_controller.get_period_id(year, month)
@@ -199,189 +200,135 @@ class ReportsForm(QWidget):
         if success:
             self.report_table.setRowCount(len(entries))
             for i, entry in enumerate(entries):
-                self.report_table.setItem(i, 0, QTableWidgetItem(entry['employee_name']))
-                self.report_table.setItem(i, 1, QTableWidgetItem(f"{float(entry['basic_salary']):,.2f}"))
-                self.report_table.setItem(i, 2, QTableWidgetItem(f"{float(entry['total_allowances']):,.2f}"))
-                self.report_table.setItem(i, 3, QTableWidgetItem(f"{float(entry['total_deductions']):,.2f}"))
-                self.report_table.setItem(i, 4, QTableWidgetItem(f"{float(entry['net_salary']):,.2f}"))
-                self.report_table.setItem(i, 5, QTableWidgetItem(entry['payment_method_name']))
-                self.report_table.setItem(i, 6, QTableWidgetItem(entry['payment_status']))
-        
-        self.report_table.resizeColumnsToContents()
+                # Get attendance data
+                attendance_data = self.attendance_controller.get_attendance_data_for_period(
+                    entry['employee_id'],
+                    period_id
+                )
+                if attendance_data:
+                    present_days = attendance_data.get('present_days', 0)
+                    absent_days = attendance_data.get('absent_days', 0)
+                else:
+                    present_days = 0
+                    absent_days = 0
+                    
+                self.report_table.setItem(i, 0, QTableWidgetItem(entry.get('employee_name', '')))
+                self.report_table.setItem(i, 1, QTableWidgetItem(f"{float(entry.get('basic_salary', 0)):,.2f}"))
+                self.report_table.setItem(i, 2, QTableWidgetItem(str(present_days)))
+                self.report_table.setItem(i, 3, QTableWidgetItem(str(absent_days)))
+                self.report_table.setItem(i, 4, QTableWidgetItem(f"{float(entry.get('total_allowances', 0)):,.2f}"))
+                self.report_table.setItem(i, 5, QTableWidgetItem(f"{float(entry.get('total_deductions', 0)):,.2f}"))
+                self.report_table.setItem(i, 6, QTableWidgetItem(f"{float(entry.get('absence_deduction', 0)):,.2f}"))
+                self.report_table.setItem(i, 7, QTableWidgetItem(f"{float(entry.get('net_salary', 0)):,.2f}"))
+                self.report_table.setItem(i, 8, QTableWidgetItem(entry.get('payment_status', '')))
+            
+            self.report_table.resizeColumnsToContents()
 
     def load_attendance_report(self):
-        self.report_table.setColumnCount(6)
+        year = int(self.year_combo.currentText())
+        month = self.month_combo.currentIndex() + 1
+        
+        self.report_table.setColumnCount(7)
         self.report_table.setHorizontalHeaderLabels([
-            "الموظف", "التاريخ", "وقت الحضور",
-            "وقت الانصراف", "ساعات العمل", "الحالة"
+            "الموظف", "القسم", "أيام العمل", "أيام الحضور",
+            "أيام الغياب", "أيام التأخير", "نسبة الحضور"
         ])
         
-        # TODO: Implement attendance report
-        self.report_table.setRowCount(0)
+        success, period_id = self.payroll_controller.get_period_id(year, month)
+        if not success:
+            self.report_table.setRowCount(0)
+            return
+            
+        employees = self.employee_controller.get_all_employees()
+        self.report_table.setRowCount(len(employees))
+        
+        for i, emp in enumerate(employees):
+            attendance_data = self.attendance_controller.get_attendance_data_for_period(
+                emp['id'],
+                period_id
+            )
+            
+            if attendance_data:
+                total_days = attendance_data.get('total_days', 0)
+                present_days = attendance_data.get('present_days', 0)
+                absent_days = attendance_data.get('absent_days', 0)
+                late_days = attendance_data.get('late_days', 0)
+                attendance_rate = (present_days / total_days * 100) if total_days > 0 else 0
+            else:
+                total_days = 0
+                present_days = 0
+                absent_days = 0
+                late_days = 0
+                attendance_rate = 0
+                
+            self.report_table.setItem(i, 0, QTableWidgetItem(emp['name']))
+            self.report_table.setItem(i, 1, QTableWidgetItem(emp.get('department_name', '')))
+            self.report_table.setItem(i, 2, QTableWidgetItem(str(total_days)))
+            self.report_table.setItem(i, 3, QTableWidgetItem(str(present_days)))
+            self.report_table.setItem(i, 4, QTableWidgetItem(str(absent_days)))
+            self.report_table.setItem(i, 5, QTableWidgetItem(str(late_days)))
+            self.report_table.setItem(i, 6, QTableWidgetItem(f"{attendance_rate:.1f}%"))
+            
+        self.report_table.resizeColumnsToContents()
 
     def generate_report(self):
-        # Add company header
-        company_name = CompanyInfo.get_company_name(self.db_file)
-        commercial_register = CompanyInfo.get_commercial_register(self.db_file)
-        
-        # Set report title based on type
+        """Generate the selected report"""
         report_type = self.type_combo.currentIndex()
-        report_title = self.type_combo.currentText()
-        
-        # Create header widget
-        header_widget = QWidget()
-        header_layout = QVBoxLayout(header_widget)
-        
-        # Add company name if available
-        if company_name:
-            company_label = QLabel(company_name)
-            company_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
-            company_label.setAlignment(Qt.AlignCenter)
-            header_layout.addWidget(company_label)
-            
-            # Add commercial register if available
-            if commercial_register:
-                register_label = QLabel(f"رقم السجل التجاري: {commercial_register}")
-                register_label.setAlignment(Qt.AlignCenter)
-                register_label.setStyleSheet("color: #7f8c8d;")
-                header_layout.addWidget(register_label)
-        
-        # Add report title
-        title_label = QLabel(f"تقرير {report_title}")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 10px;")
-        title_label.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(title_label)
-        
-        # Add date
-        date_label = QLabel(f"تاريخ التقرير: {datetime.now().strftime('%Y-%m-%d')}")
-        date_label.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(date_label)
-        
-        # Add separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        header_layout.addWidget(separator)
-        
-        # Clear previous report
-        for i in reversed(range(self.layout().count())):
-            widget = self.layout().itemAt(i).widget()
-            if widget and widget != self.controls_widget:
-                widget.deleteLater()
-        
-        # Add header to layout
-        self.layout().addWidget(header_widget)
-        
-        # Create report content widget
-        report_widget = QWidget()
-        report_layout = QVBoxLayout(report_widget)
-        
-        # Create table for report
-        self.report_table = QTableWidget()
-        self.report_table.setAlternatingRowColors(True)
-        self.report_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        report_layout.addWidget(self.report_table)
-        
-        # Add report to layout
-        self.layout().addWidget(report_widget)
-        
-        # Load report data based on type
         if report_type == 0:
             self.load_employee_report()
         elif report_type == 1:
             self.load_payroll_report()
-        elif report_type == 2:
+        else:
             self.load_attendance_report()
 
     def print_report(self):
         """Print the current report"""
-        # Get company information
-        company_name = CompanyInfo.get_company_name(self.db_file)
-        commercial_register = CompanyInfo.get_commercial_register(self.db_file)
-        
-        # Create printer
         printer = QPrinter(QPrinter.HighResolution)
-        printer.setPageSize(QPrinter.A4)
-        
-        # Show print preview dialog
         preview = QPrintPreviewDialog(printer, self)
-        preview.paintRequested.connect(lambda p: self.print_preview(p, company_name, commercial_register))
+        preview.paintRequested.connect(self.handle_print_request)
         preview.exec_()
-        
-    def print_preview(self, printer, company_name, commercial_register):
-        """Handle print preview"""
-        # Create document
+
+    def handle_print_request(self, printer):
+        """Handle the print request"""
         document = QTextDocument()
+        cursor = document.rootFrame().firstCursorPosition()
         
-        # Get report title
+        # Add company info
+        company_name = CompanyInfo.get_company_name(self.db_file)
+        cursor.insertHtml(f"<h1 style='text-align: center;'>{company_name}</h1>")
+        cursor.insertHtml("<br>")
+        
+        # Add report title
         report_type = self.type_combo.currentText()
+        cursor.insertHtml(f"<h2 style='text-align: center;'>{report_type}</h2>")
+        cursor.insertHtml("<br>")
         
-        # Create HTML content
-        html = f"""
-        <!DOCTYPE html>
-        <html dir="rtl">
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; direction: rtl; }}
-                .header {{ text-align: center; margin-bottom: 20px; }}
-                .company-name {{ font-size: 18px; font-weight: bold; }}
-                .company-info {{ font-size: 12px; color: #666; margin-bottom: 10px; }}
-                .title {{ font-size: 16px; font-weight: bold; margin: 10px 0; }}
-                table {{ width: 100%; border-collapse: collapse; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: right; }}
-                th {{ background-color: #f2f2f2; }}
-            </style>
-        </head>
-        <body>
-            <div class="header">
-        """
+        # Add period info
+        year = self.year_combo.currentText()
+        month = self.month_combo.currentText()
+        cursor.insertHtml(f"<p style='text-align: center;'>{month} {year}</p>")
+        cursor.insertHtml("<br>")
         
-        # Add company info if available
-        if company_name:
-            html += f'<div class="company-name">{company_name}</div>'
-            if commercial_register:
-                html += f'<div class="company-info">رقم السجل التجاري: {commercial_register}</div>'
+        # Create table HTML
+        table_html = "<table border='1' cellspacing='0' cellpadding='4' width='100%'>"
         
-        # Add report title and date
-        html += f"""
-                <div class="title">تقرير {report_type}</div>
-                <div>تاريخ التقرير: {datetime.now().strftime('%Y-%m-%d')}</div>
-            </div>
-            
-            <table>
-                <thead>
-                    <tr>
-        """
-        
-        # Add table headers
+        # Add headers
+        table_html += "<tr>"
         for col in range(self.report_table.columnCount()):
-            header_text = self.report_table.horizontalHeaderItem(col).text()
-            html += f'<th>{header_text}</th>'
+            header = self.report_table.horizontalHeaderItem(col).text()
+            table_html += f"<th>{header}</th>"
+        table_html += "</tr>"
         
-        html += """
-                    </tr>
-                </thead>
-                <tbody>
-        """
-        
-        # Add table data
+        # Add data
         for row in range(self.report_table.rowCount()):
-            html += '<tr>'
+            table_html += "<tr>"
             for col in range(self.report_table.columnCount()):
                 item = self.report_table.item(row, col)
-                text = item.text() if item else ''
-                html += f'<td>{text}</td>'
-            html += '</tr>'
+                text = item.text() if item else ""
+                table_html += f"<td>{text}</td>"
+            table_html += "</tr>"
+            
+        table_html += "</table>"
         
-        html += """
-                </tbody>
-            </table>
-        </body>
-        </html>
-        """
-        
-        # Set HTML content
-        document.setHtml(html)
-        
-        # Print document
+        cursor.insertHtml(table_html)
         document.print_(printer)

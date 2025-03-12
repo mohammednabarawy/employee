@@ -546,30 +546,21 @@ class EmployeeForm(QDialog):
 
     def load_employees(self):
         """Load all employees and initialize the form"""
-        success, employees = self.employee_controller.get_all_employees()
-        if success:
-            self.employees = employees
-            self.filtered_employees = employees.copy()
-            
-            # Only reset current_employee_index if there are no employees
-            # or if it's the first load (current_employee_index == -1)
-            if not employees:
-                self.current_employee_index = -1
-                self.employee_id = None
-                self.clear_form()
-            elif self.current_employee_index == -1 and employees:
-                self.current_employee_index = 0
-                self.load_current_employee()
-                
-            self.update_navigation_buttons()
-        else:
-            QMessageBox.warning(self, "خطأ", f"حدث خطأ أثناء تحميل بيانات الموظفين: {employees}")
-            self.employees = []
-            self.filtered_employees = []
+        employees = self.employee_controller.get_all_employees()
+        self.employees = employees
+        self.filtered_employees = employees.copy()
+        
+        # Only reset current_employee_index if there are no employees
+        # or if it's the first load (current_employee_index == -1)
+        if not employees:
             self.current_employee_index = -1
             self.employee_id = None
             self.clear_form()
-            self.update_navigation_buttons()
+        elif self.current_employee_index == -1 and employees:
+            self.current_employee_index = 0
+            self.load_current_employee()
+            
+        self.update_navigation_buttons()
 
     def select_photo(self):
         """Open file dialog to select employee photo"""

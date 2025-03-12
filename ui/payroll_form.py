@@ -2,345 +2,273 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QComboBox, QTableWidget, QTableWidgetItem,
                              QMessageBox, QCalendarWidget, QDialog, QCheckBox, 
                              QDoubleSpinBox, QFormLayout, QDialogButtonBox, 
-                             QTextEdit, QMenu, QLineEdit, QFrame, QGroupBox)
+                             QTextEdit, QMenu, QLineEdit, QFrame, QGroupBox,
+                             QScrollArea, QTabWidget)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QIcon
 import qtawesome as qta
-from datetime import datetime
+from datetime import datetime, timedelta
+import calendar
 from ui.styles import Styles
-
-class AddEmployeeDialog(QDialog):
-    def __init__(self, employee_controller, parent=None):
-        super().__init__(parent)
-        self.employee_controller = employee_controller
-        self.selected_employees = []
-        self.all_employees = []  # Initialize all_employees list
-        self.init_ui()
-        
-    def init_ui(self):
-        self.setWindowTitle("إضافة موظفين")
-        self.setMinimumWidth(800)
-        self.setStyleSheet(Styles.LIGHT_THEME)
-        
-        layout = QVBoxLayout()
-        self.setLayout(layout)
-        
-        # Add employee list first
-        self.employee_list = QTableWidget()
-        self.employee_list.setColumnCount(5)
-        self.employee_list.setHorizontalHeaderLabels([
-            "تحديد", "الرقم", "الاسم", "القسم", "الراتب الأساسي"
-        ])
-        self.employee_list.setAlternatingRowColors(True)
-        layout.addWidget(self.employee_list)
-        
-        # Create search and filter frame
-        filter_frame = QFrame()
-        filter_frame.setObjectName("filterFrame")
-        filter_layout = QHBoxLayout(filter_frame)
-        
-        # Add search box with icon
-        search_layout = QHBoxLayout()
-        search_icon = QLabel()
-        search_icon.setPixmap(qta.icon('fa5s.search', color='#3498db').pixmap(16, 16))
-        self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("بحث عن موظف...")
-        search_layout.addWidget(search_icon)
-        search_layout.addWidget(self.search_box)
-        filter_layout.addLayout(search_layout)
-        
-        # Add department filter with icon
-        dept_layout = QHBoxLayout()
-        dept_icon = QLabel()
-        dept_icon.setPixmap(qta.icon('fa5s.building', color='#3498db').pixmap(16, 16))
-        self.dept_combo = QComboBox()
-        
-        # Get departments
-        success, departments = self.employee_controller.get_departments()
-        if success:
-            self.dept_combo.addItem("كل الأقسام", None)
-            for dept in departments:
-                self.dept_combo.addItem(dept['name'], dept['id'])
-                
-        dept_layout.addWidget(dept_icon)
-        dept_layout.addWidget(self.dept_combo)
-        filter_layout.addLayout(dept_layout)
-        
-        layout.addWidget(filter_frame)
-        
-        # Add select all checkbox with icon
-        select_all_layout = QHBoxLayout()
-        select_icon = QLabel()
-        select_icon.setPixmap(qta.icon('fa5s.check-square', color='#3498db').pixmap(16, 16))
-        self.select_all = QCheckBox("تحديد الكل")
-        select_all_layout.addWidget(select_icon)
-        select_all_layout.addWidget(self.select_all)
-        layout.addLayout(select_all_layout)
-        
-        # Add buttons
-        button_box = QDialogButtonBox()
-        ok_button = button_box.addButton(QDialogButtonBox.Ok)
-        cancel_button = button_box.addButton(QDialogButtonBox.Cancel)
-        
-        # Add icons to buttons
-        ok_button.setIcon(qta.icon('fa5s.check', color='white'))
-        cancel_button.setIcon(qta.icon('fa5s.times', color='white'))
-        
-        # Set button text
-        ok_button.setText("موافق")
-        cancel_button.setText("إلغاء")
-        
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-        
-        # Load employees
-        self.load_employees()
-        
-        # Connect signals after everything is set up
-        self.search_box.textChanged.connect(self.filter_employees)
-        self.dept_combo.currentIndexChanged.connect(self.filter_employees)
-        self.select_all.stateChanged.connect(self.toggle_all)
-        
-    def load_employees(self):
-        success, employees = self.employee_controller.get_active_employees()
-        if not success:
-            QMessageBox.warning(self, "خطأ", "حدث خطأ أثناء تحميل بيانات الموظفين: " + str(employees))
-            return
-            
-        self.all_employees = employees
-        self.filter_employees()
-        
-    def filter_employees(self):
-        if not hasattr(self, 'all_employees') or not hasattr(self, 'employee_list'):
-            return
-            
-        search_text = self.search_box.text().lower()
-        selected_dept = self.dept_combo.currentData()
-        
-        filtered_employees = []
-        for emp in self.all_employees:
-            # Apply search filter
-            if search_text and search_text not in emp['name'].lower():
-                continue
-                
-            # Apply department filter
-            if selected_dept and emp['department_id'] != selected_dept:
-                continue
-                
-            filtered_employees.append(emp)
-        
-        self.employee_list.setRowCount(len(filtered_employees))
-        for i, emp in enumerate(filtered_employees):
-            # Add checkbox
-            checkbox = QTableWidgetItem()
-            checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            checkbox.setCheckState(Qt.Unchecked)
-            self.employee_list.setItem(i, 0, checkbox)
-            
-            # Add employee info with icons
-            id_item = QTableWidgetItem(str(emp['id']))
-            id_item.setIcon(qta.icon('fa5s.id-badge', color='#3498db'))
-            
-            name_item = QTableWidgetItem(emp['name'])
-            name_item.setIcon(qta.icon('fa5s.user', color='#3498db'))
-            
-            dept_item = QTableWidgetItem(emp.get('department_name', ''))
-            dept_item.setIcon(qta.icon('fa5s.building', color='#3498db'))
-            
-            salary_item = QTableWidgetItem(f"{float(emp['basic_salary']):,.2f}")
-            salary_item.setIcon(qta.icon('fa5s.money-bill', color='#3498db'))
-            
-            self.employee_list.setItem(i, 1, id_item)
-            self.employee_list.setItem(i, 2, name_item)
-            self.employee_list.setItem(i, 3, dept_item)
-            self.employee_list.setItem(i, 4, salary_item)
-            
-        self.employee_list.resizeColumnsToContents()
-        
-    def toggle_all(self, state):
-        for row in range(self.employee_list.rowCount()):
-            self.employee_list.item(row, 0).setCheckState(
-                Qt.Checked if state == Qt.Checked else Qt.Unchecked
-            )
-            
-    def get_selected_employees(self):
-        selected_ids = []
-        for row in range(self.employee_list.rowCount()):
-            if self.employee_list.item(row, 0).checkState() == Qt.Checked:
-                employee_id = int(self.employee_list.item(row, 1).text())
-                selected_ids.append(employee_id)
-        return selected_ids
-
-class EditEmployeePayrollDialog(QDialog):
-    def __init__(self, payroll_controller, employee_data, parent=None):
-        super().__init__(parent)
-        self.payroll_controller = payroll_controller
-        self.employee_data = employee_data
-        self.init_ui()
-
-    def init_ui(self):
-        self.setWindowTitle(f"تعديل راتب - {self.employee_data.get('name', '')}")
-        layout = QFormLayout()
-        self.setLayout(layout)
-
-        # Basic salary
-        self.basic_salary = QDoubleSpinBox()
-        self.basic_salary.setMaximum(1000000)
-        self.basic_salary.setValue(float(self.employee_data.get('basic_salary', 0)))
-        layout.addRow("الراتب الأساسي:", self.basic_salary)
-
-        # Allowances
-        success, components = self.payroll_controller.get_salary_components('allowance')
-        if success:
-            self.allowance_fields = {}
-            for comp in components:
-                field = QDoubleSpinBox()
-                field.setMaximum(1000000)
-                value = comp.get('value')
-                if value is not None:
-                    field.setValue(float(value))
-                else:
-                    field.setValue(0.0)
-                layout.addRow(f"{comp['name_ar']}:", field)
-                self.allowance_fields[comp['id']] = field
-
-        # Deductions
-        success, components = self.payroll_controller.get_salary_components('deduction')
-        if success:
-            self.deduction_fields = {}
-            for comp in components:
-                field = QDoubleSpinBox()
-                field.setMaximum(1000000)
-                value = comp.get('value')
-                if value is not None:
-                    field.setValue(float(value))
-                else:
-                    field.setValue(0.0)
-                layout.addRow(f"{comp['name_ar']}:", field)
-                self.deduction_fields[comp['id']] = field
-
-        # Payment method
-        self.payment_method = QComboBox()
-        success, methods = self.payroll_controller.get_payment_methods()
-        if success:
-            for method in methods:
-                self.payment_method.addItem(method['name_ar'], method['id'])
-        layout.addRow("طريقة الدفع:", self.payment_method)
-
-        # Notes
-        self.notes = QTextEdit()
-        layout.addRow("ملاحظات:", self.notes)
-
-        # Buttons
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def get_values(self):
-        values = {
-            'basic_salary': self.basic_salary.value(),
-            'payment_method': self.payment_method.currentData(),
-            'notes': self.notes.toPlainText(),
-            'allowances': {comp_id: field.value() 
-                         for comp_id, field in self.allowance_fields.items()},
-            'deductions': {comp_id: field.value() 
-                         for comp_id, field in self.deduction_fields.items()}
-        }
-        return values
+from ui.payroll_dialog import EditEmployeePayrollDialog
 
 class PayrollForm(QWidget):
-    def __init__(self, payroll_controller, employee_controller):
+    def __init__(self, payroll_controller, employee_controller, attendance_controller):
         super().__init__()
         self.payroll_controller = payroll_controller
         self.employee_controller = employee_controller
+        self.attendance_controller = attendance_controller
         self.current_period_id = None
+        self.checkboxes = []  # Initialize checkboxes list
         self.init_ui()
         
     def init_ui(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
-        
-        # Create toolbar
-        toolbar = QHBoxLayout()
         
         # Period selection
         period_layout = QHBoxLayout()
         period_label = QLabel("فترة الرواتب:")
         self.period_combo = QComboBox()
-        self.period_combo.setMinimumWidth(200)
-        self.period_combo.currentIndexChanged.connect(self.period_selected)  # Add this line
+        self.period_combo.currentIndexChanged.connect(self.period_selected)
+        
+        # Add period button with icon
+        add_period_btn = QPushButton()
+        add_period_btn.setIcon(qta.icon('fa5s.plus-circle', color='white'))
+        add_period_btn.setToolTip("إضافة فترة جديدة")
+        add_period_btn.clicked.connect(self.create_period)
         
         period_layout.addWidget(period_label)
         period_layout.addWidget(self.period_combo)
+        period_layout.addWidget(add_period_btn)
+        layout.addLayout(period_layout)
         
-        # Create period button
-        create_period_btn = QPushButton("إنشاء فترة جديدة")
-        create_period_btn.setIcon(qta.icon('fa5s.plus-circle', color='white'))
-        create_period_btn.clicked.connect(self.create_period)
+        # Add employee button with icon
+        add_employee_btn = QPushButton("إضافة موظفين")
+        add_employee_btn.setIcon(qta.icon('fa5s.user-plus', color='white'))
+        add_employee_btn.clicked.connect(self.add_employees)
+        layout.addWidget(add_employee_btn)
         
-        # Add employees button
-        add_employees_btn = QPushButton("إضافة موظفين")
-        add_employees_btn.setIcon(qta.icon('fa5s.user-plus', color='white'))
-        add_employees_btn.clicked.connect(self.add_employees)
+        # Create tab widget for Payroll and Attendance
+        tab_widget = QTabWidget()
         
-        # Salary comparison button
-        compare_btn = QPushButton("مقارنة الرواتب")
-        compare_btn.setIcon(qta.icon('fa5s.chart-bar', color='white'))
-        compare_btn.clicked.connect(self.show_salary_comparison)
+        # Payroll tab
+        payroll_tab = QWidget()
+        payroll_layout = QVBoxLayout()
         
-        # Add to toolbar
-        toolbar.addLayout(period_layout)
-        toolbar.addWidget(create_period_btn)
-        toolbar.addWidget(add_employees_btn)
-        toolbar.addWidget(compare_btn)
-        toolbar.addStretch()
-        
-        layout.addLayout(toolbar)
-        
-        # Button layout
-        button_layout = QHBoxLayout()
-        
-        self.add_employee_btn = QPushButton("إضافة موظفين")
-        self.add_employee_btn.clicked.connect(self.add_employees)
-        self.add_employee_btn.setEnabled(False)
-        
-        self.approve_btn = QPushButton("اعتماد كشف الرواتب")
-        self.approve_btn.clicked.connect(self.approve_payroll)
-        self.approve_btn.setEnabled(False)
-        
-        self.process_btn = QPushButton("صرف الرواتب")
-        self.process_btn.clicked.connect(self.process_payroll)
-        self.process_btn.setEnabled(False)
-        
-        self.print_all_btn = QPushButton("طباعة جميع قسائم الرواتب")
-        self.print_all_btn.clicked.connect(self.print_all_payslips)
-        self.print_all_btn.setEnabled(False)
-        
-        button_layout.addWidget(self.add_employee_btn)
-        button_layout.addWidget(self.approve_btn)
-        button_layout.addWidget(self.process_btn)
-        button_layout.addWidget(self.print_all_btn)
-        layout.addLayout(button_layout)
-        
-        # Add payroll table
+        # Payroll table
         self.payroll_table = QTableWidget()
         self.payroll_table.setColumnCount(9)
         self.payroll_table.setHorizontalHeaderLabels([
-            "الموظف", "الراتب الأساسي", "البدلات",
-            "الاستقطاعات", "صافي الراتب", "طريقة الدفع", 
-            "الحالة", "تعديل", "حذف"
+            "الموظف", "الراتب الأساسي", "أيام الحضور", "أيام الغياب",
+            "البدلات", "الخصومات", "خصم الغياب", "صافي الراتب", "الحالة"
         ])
         self.payroll_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.payroll_table.customContextMenuRequested.connect(self.show_context_menu)
-        layout.addWidget(self.payroll_table)
+        self.payroll_table.itemDoubleClicked.connect(self.edit_entry)
+        payroll_layout.addWidget(self.payroll_table)
         
-        # Load existing periods
+        # Action buttons
+        action_layout = QHBoxLayout()
+        
+        self.approve_btn = QPushButton("اعتماد كشف الرواتب")
+        self.approve_btn.setIcon(qta.icon('fa5s.check-circle', color='white'))
+        self.approve_btn.clicked.connect(self.approve_payroll)
+        
+        self.process_btn = QPushButton("صرف الرواتب")
+        self.process_btn.setIcon(qta.icon('fa5s.money-bill-wave', color='white'))
+        self.process_btn.clicked.connect(self.process_payroll)
+        
+        action_layout.addWidget(self.approve_btn)
+        action_layout.addWidget(self.process_btn)
+        payroll_layout.addLayout(action_layout)
+        
+        payroll_tab.setLayout(payroll_layout)
+        tab_widget.addTab(payroll_tab, "الرواتب")
+        
+        # Attendance tab
+        attendance_tab = QWidget()
+        attendance_layout = QVBoxLayout()
+        
+        # Employee selection for attendance
+        emp_layout = QHBoxLayout()
+        emp_label = QLabel("الموظف:")
+        self.emp_combo = QComboBox()
+        emp_layout.addWidget(emp_label)
+        emp_layout.addWidget(self.emp_combo)
+        attendance_layout.addLayout(emp_layout)
+        
+        # Attendance group
+        attendance_group = QGroupBox("الحضور والانصراف")
+        attendance_inner_layout = QVBoxLayout()
+        
+        # Add buttons layout
+        buttons_layout = QHBoxLayout()
+        
+        # Check All button
+        self.check_all_btn = QPushButton("تحديد الكل")
+        self.check_all_btn.clicked.connect(self.check_all_attendance)
+        buttons_layout.addWidget(self.check_all_btn)
+        
+        # Uncheck All button
+        self.uncheck_all_btn = QPushButton("إلغاء تحديد الكل")
+        self.uncheck_all_btn.clicked.connect(self.uncheck_all_attendance)
+        buttons_layout.addWidget(self.uncheck_all_btn)
+        
+        attendance_inner_layout.addLayout(buttons_layout)
+        
+        # Create scroll area for checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        self.checkboxes_layout = QVBoxLayout(scroll_content)
+        scroll.setWidget(scroll_content)
+        attendance_inner_layout.addWidget(scroll)
+        
+        attendance_group.setLayout(attendance_inner_layout)
+        attendance_layout.addWidget(attendance_group)
+        
+        # Save attendance button
+        self.save_attendance_btn = QPushButton("حفظ الحضور")
+        self.save_attendance_btn.clicked.connect(self.save_attendance)
+        attendance_layout.addWidget(self.save_attendance_btn)
+        
+        attendance_tab.setLayout(attendance_layout)
+        tab_widget.addTab(attendance_tab, "الحضور والانصراف")
+        
+        layout.addWidget(tab_widget)
+        
+        # Load initial data
         self.load_periods()
+        self.load_employees()
         
+    def load_employees(self):
+        """Load all active employees into the employee combo box"""
+        employees = self.employee_controller.get_all_employees()
+        self.emp_combo.clear()
+        
+        if employees:
+            for employee in employees:
+                self.emp_combo.addItem(
+                    f"{employee['name']} ({employee['id']})", 
+                    employee['id']
+                )
+            self.emp_combo.currentIndexChanged.connect(self.employee_selected)
+            
+    def employee_selected(self):
+        """Handle employee selection change"""
+        employee_id = self.emp_combo.currentData()
+        if employee_id:
+            self.update_attendance_checkboxes()
+            
+    def update_attendance_checkboxes(self):
+        """Update attendance checkboxes based on selected employee and period"""
+        if not self.current_period_id:
+            return
+            
+        employee_id = self.emp_combo.currentData()
+        if not employee_id:
+            return
+            
+        # Clear existing checkboxes
+        while self.checkboxes_layout.count():
+            child = self.checkboxes_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+                
+        # Get period dates
+        period = next((p for p in self.periods if p['id'] == self.current_period_id), None)
+        if not period:
+            return
+            
+        start_date = datetime.strptime(period['start_date'], '%Y-%m-%d')
+        end_date = datetime.strptime(period['end_date'], '%Y-%m-%d')
+        current_date = start_date
+        
+        self.checkboxes = []  # Store checkboxes for easy access
+        
+        # Create checkbox for each day in the period
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            checkbox = QCheckBox(date_str)
+            
+            # Check if employee was present on this day
+            status = self.attendance_controller.get_attendance_status_for_date(
+                employee_id,
+                date_str
+            )
+            checkbox.setChecked(status == "present")
+            
+            self.checkboxes_layout.addWidget(checkbox)
+            self.checkboxes.append(checkbox)
+            
+            current_date += timedelta(days=1)
+            
+    def check_all_attendance(self):
+        """Check all attendance checkboxes"""
+        if hasattr(self, 'checkboxes'):
+            for checkbox in self.checkboxes:
+                checkbox.setChecked(True)
+
+    def uncheck_all_attendance(self):
+        """Uncheck all attendance checkboxes"""
+        if hasattr(self, 'checkboxes'):
+            for checkbox in self.checkboxes:
+                checkbox.setChecked(False)
+            
+    def save_attendance(self):
+        """Save attendance records for the selected employee"""
+        employee_id = self.emp_combo.currentData()
+        if not employee_id or not self.current_period_id:
+            return
+            
+        try:
+            # Save attendance for each day
+            for checkbox in self.checkboxes:
+                date_str = checkbox.text()
+                status = "present" if checkbox.isChecked() else "absent"
+                
+                self.attendance_controller.mark_attendance_for_date(
+                    employee_id,
+                    date_str,
+                    status
+                )
+            
+            # Update payroll entry with new attendance data
+            success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
+            if success:
+                for entry in entries:
+                    if entry['employee_id'] == employee_id:
+                        # Get attendance data
+                        attendance_data = self.attendance_controller.get_attendance_data_for_period(
+                            employee_id,
+                            self.current_period_id
+                        )
+                        
+                        if attendance_data:
+                            # Calculate absence deduction
+                            daily_rate = entry['basic_salary'] / attendance_data['total_days'] if attendance_data['total_days'] > 0 else 0
+                            absence_deduction = daily_rate * attendance_data['absent_days']
+                            
+                            # Update payroll entry
+                            self.payroll_controller.update_payroll_entry(
+                                entry_id=entry['id'],
+                                adjustments={
+                                    'basic_salary': entry['basic_salary'],
+                                    'total_allowances': entry['total_allowances'],
+                                    'total_deductions': entry['total_deductions'],
+                                    'absence_deduction': absence_deduction
+                                },
+                                reason="تحديث الحضور والغياب",
+                                updated_by=1  # TODO: Get actual user ID
+                            )
+            
+            QMessageBox.information(self, "نجاح", "تم حفظ بيانات الحضور بنجاح")
+            self.load_payroll_data()
+            
+        except Exception as e:
+            QMessageBox.warning(self, "خطأ", str(e))
+
     def load_periods(self):
         """Load all payroll periods into the combo box"""
         self.period_combo.clear()
@@ -348,6 +276,7 @@ class PayrollForm(QWidget):
         
         success, periods = self.payroll_controller.get_payroll_periods()
         if success:
+            self.periods = periods
             for period in periods:
                 # Get Arabic month name
                 month_names = [
@@ -364,10 +293,8 @@ class PayrollForm(QWidget):
         """Handle period selection"""
         if index < 0:
             self.current_period_id = None
-            self.add_employee_btn.setEnabled(False)
             self.approve_btn.setEnabled(False)
             self.process_btn.setEnabled(False)
-            self.print_all_btn.setEnabled(False)
             return
             
         self.current_period_id = self.period_combo.itemData(index)
@@ -376,13 +303,50 @@ class PayrollForm(QWidget):
         # Update button states based on period status
         success, status = self.payroll_controller.get_period_status(self.current_period_id)
         if success:
-            self.add_employee_btn.setEnabled(status in ['draft', 'processing'])
             self.approve_btn.setEnabled(status == 'draft')
             self.process_btn.setEnabled(status == 'approved')
-            # Enable print button for any status as long as there are entries
-            success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
-            self.print_all_btn.setEnabled(success and len(entries) > 0)
-
+            
+    def load_payroll_data(self):
+        """Load payroll data for the current period"""
+        if not self.current_period_id:
+            return
+            
+        success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
+        if not success:
+            return
+            
+        self.payroll_table.setRowCount(len(entries))
+        for i, entry in enumerate(entries):
+            # Get attendance data
+            attendance_data = self.attendance_controller.get_attendance_data_for_period(
+                entry['employee_id'],
+                self.current_period_id
+            )
+            
+            present_days = attendance_data.get('present_days', 0) if attendance_data else 0
+            absent_days = attendance_data.get('absent_days', 0) if attendance_data else 0
+            
+            # Employee name with ID as UserRole
+            name_item = QTableWidgetItem(entry['employee_name'])
+            name_item.setData(Qt.UserRole, entry['id'])
+            self.payroll_table.setItem(i, 0, name_item)
+            
+            # Basic salary
+            self.payroll_table.setItem(i, 1, QTableWidgetItem(f"{float(entry['basic_salary']):,.2f}"))
+            
+            # Attendance
+            self.payroll_table.setItem(i, 2, QTableWidgetItem(str(present_days)))
+            self.payroll_table.setItem(i, 3, QTableWidgetItem(str(absent_days)))
+            
+            # Financial details
+            self.payroll_table.setItem(i, 4, QTableWidgetItem(f"{float(entry['total_allowances']):,.2f}"))
+            self.payroll_table.setItem(i, 5, QTableWidgetItem(f"{float(entry['total_deductions']):,.2f}"))
+            self.payroll_table.setItem(i, 6, QTableWidgetItem(f"{float(entry.get('absence_deduction', 0)):,.2f}"))
+            self.payroll_table.setItem(i, 7, QTableWidgetItem(f"{float(entry['net_salary']):,.2f}"))
+            self.payroll_table.setItem(i, 8, QTableWidgetItem(entry['payment_status']))
+        
+        self.payroll_table.resizeColumnsToContents()
+        
     def show_context_menu(self, pos):
         row = self.payroll_table.rowAt(pos.y())
         if row < 0:
@@ -488,44 +452,6 @@ class PayrollForm(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, "خطأ", f"فشل طباعة قسيمة الراتب: {str(e)}")
 
-    def print_all_payslips(self):
-        """Print payslips for all employees in the current period"""
-        if not self.current_period_id:
-            return
-            
-        # Get all entries for the current period
-        success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
-        if not success or not entries:
-            QMessageBox.warning(self, "خطأ", "لا توجد بيانات رواتب للطباعة")
-            return
-            
-        # Get detailed payslip data for each entry
-        payslips_data = []
-        for entry in entries:
-            entry_id = entry.get('id')
-            if entry_id:
-                success, payslip_data = self.payroll_controller.get_employee_payslip(entry_id)
-                if success:
-                    # Add database file to payslip data for company info
-                    payslip_data['db_file'] = self.payroll_controller.db.db_file
-                    payslips_data.append(payslip_data)
-        
-        if not payslips_data:
-            QMessageBox.warning(self, "خطأ", "فشل استرجاع بيانات قسائم الرواتب")
-            return
-            
-        # Print all payslips
-        try:
-            from .payslip_template import PayslipPrinter
-            PayslipPrinter.print_multiple_payslips(self, payslips_data)
-        except ImportError:
-            # Try alternative import path
-            try:
-                from ui.payslip_template import PayslipPrinter
-                PayslipPrinter.print_multiple_payslips(self, payslips_data)
-            except Exception as e:
-                QMessageBox.warning(self, "خطأ", f"فشل طباعة قسائم الرواتب: {str(e)}")
-
     def view_salary_history(self, employee_data):
         """Show salary history for an employee"""
         from ui.salary_history_dialog import SalaryHistoryDialog
@@ -618,19 +544,36 @@ class PayrollForm(QWidget):
                     QMessageBox.warning(self, "خطأ", f"فشل إضافة الموظفين: {message}")
 
     def edit_entry(self, item):
+        """Edit a payroll entry"""
         row = item.row()
-        employee_data = self.get_row_data(row)
+        employee_data = {
+            'employee_id': self.payroll_table.item(row, 0).data(Qt.UserRole),
+            'employee_name': self.payroll_table.item(row, 0).text(),
+            'basic_salary': float(self.payroll_table.item(row, 1).text().replace(',', '')),
+            'total_allowances': float(self.payroll_table.item(row, 4).text().replace(',', '')),
+            'total_deductions': float(self.payroll_table.item(row, 5).text().replace(',', '')),
+            'absence_deduction': float(self.payroll_table.item(row, 6).text().replace(',', '')),
+            'net_salary': float(self.payroll_table.item(row, 7).text().replace(',', ''))
+        }
         
         dialog = EditEmployeePayrollDialog(self.payroll_controller, employee_data, self)
         if dialog.exec_() == QDialog.Accepted:
             values = dialog.get_values()
+            
+            # Get the current user ID (you should implement this)
+            updated_by = 1  # TODO: Get actual user ID
+            
             success, message = self.payroll_controller.update_payroll_entry(
-                self.current_period_id, employee_data['id'], values)
+                entry_id=employee_data['employee_id'],
+                adjustments=values,
+                reason="تحديث بيانات الراتب",
+                updated_by=updated_by
+            )
+            
             if success:
                 self.load_payroll_data()
-                QMessageBox.information(self, "نجاح", "تم تحديث البيانات بنجاح")
             else:
-                QMessageBox.warning(self, "خطأ", f"فشل تحديث البيانات: {message}")
+                QMessageBox.warning(self, "خطأ", message)
 
     def get_row_data(self, row):
         """Get data for a specific row in the payroll table"""
@@ -647,50 +590,6 @@ class PayrollForm(QWidget):
                 header = self.payroll_table.horizontalHeaderItem(col).text()
                 data[header] = item.text()
         return data
-
-    def load_payroll_data(self):
-        if not self.current_period_id:
-            return
-            
-        success, entries = self.payroll_controller.get_payroll_entries(self.current_period_id)
-        if not success:
-            QMessageBox.warning(self, "خطأ", f"فشل تحميل بيانات الرواتب: {entries}")
-            return
-            
-        self.payroll_table.setRowCount(len(entries))
-        for i, entry in enumerate(entries):
-            # Create name item with employee ID stored in user role
-            name_item = QTableWidgetItem(entry.get('employee_name', ''))
-            name_item.setData(Qt.UserRole, entry.get('employee_id'))  # Store employee ID
-            self.payroll_table.setItem(i, 0, name_item)
-            
-            self.payroll_table.setItem(i, 1, QTableWidgetItem(f"{float(entry.get('basic_salary', 0)):,.2f}"))
-            self.payroll_table.setItem(i, 2, QTableWidgetItem(f"{float(entry.get('total_allowances', 0)):,.2f}"))
-            self.payroll_table.setItem(i, 3, QTableWidgetItem(f"{float(entry.get('total_deductions', 0)):,.2f}"))
-            self.payroll_table.setItem(i, 4, QTableWidgetItem(f"{float(entry.get('net_salary', 0)):,.2f}"))
-            self.payroll_table.setItem(i, 5, QTableWidgetItem(entry.get('payment_method_name', '')))
-            self.payroll_table.setItem(i, 6, QTableWidgetItem(entry.get('payment_status', '')))
-            
-            # Add edit button
-            edit_btn = QPushButton("تعديل")
-            edit_btn.clicked.connect(lambda checked, row=i: self.edit_entry(self.payroll_table.item(row, 0)))
-            self.payroll_table.setCellWidget(i, 7, edit_btn)
-            
-            # Add delete button
-            delete_btn = QPushButton("حذف")
-            delete_btn.clicked.connect(lambda checked, row=i: self.delete_employee(row))
-            self.payroll_table.setCellWidget(i, 8, delete_btn)
-        
-        self.payroll_table.resizeColumnsToContents()
-        
-        # Update button states based on period status
-        success, status = self.payroll_controller.get_period_status(self.current_period_id)
-        if success:
-            self.add_employee_btn.setEnabled(status in ['draft', 'processing'])
-            self.approve_btn.setEnabled(status == 'draft')
-            self.process_btn.setEnabled(status == 'approved')
-            # Enable print button if there are entries
-            self.print_all_btn.setEnabled(len(entries) > 0)
 
     def approve_payroll(self):
         if not self.current_period_id:
